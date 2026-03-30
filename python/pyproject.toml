@@ -57,3 +57,6 @@ warn_unused_ignores = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "e2e: end-to-end tests against live testnet (requires PAYSKILL_TESTNET_KEY)",
+]
