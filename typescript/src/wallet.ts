@@ -125,47 +125,114 @@ export class Wallet {
     return (await resp.json()) as { id: string };
   }
 
-  /** Open a tab with a provider. */
+  /** Open a tab with a provider (positional or object form). */
   async openTab(
-    provider: string,
-    amount: number,
-    maxChargePerCall: number,
+    providerOrOpts: string | { to: string; limit: number; perUnit: number; permit?: PermitResult },
+    amount?: number,
+    maxChargePerCall?: number,
     options?: { permit?: PermitResult }
-  ): Promise<{ tab_id: string }> {
+  ): Promise<{ id: string; tab_id: string }> {
+    let provider: string;
+    let amt: number;
+    let maxCharge: number;
+    let permit: PermitResult | undefined;
+
+    if (typeof providerOrOpts === "string") {
+      provider = providerOrOpts;
+      amt = amount!;
+      maxCharge = maxChargePerCall!;
+      permit = options?.permit;
+    } else {
+      provider = providerOrOpts.to;
+      amt = providerOrOpts.limit;
+      maxCharge = providerOrOpts.perUnit;
+      permit = providerOrOpts.permit;
+    }
+
     const resp = await fetch(`${this._apiUrl}/tabs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         from: this.address,
         provider,
-        amount: Math.round(amount * 1_000_000),
-        max_charge_per_call: Math.round(maxChargePerCall * 1_000_000),
-        permit: options?.permit,
+        amount: Math.round(amt * 1_000_000),
+        max_charge_per_call: Math.round(maxCharge * 1_000_000),
+        permit,
       }),
     });
     if (!resp.ok) throw new Error(`openTab failed: ${resp.status}`);
-    return (await resp.json()) as { tab_id: string };
+    const data = (await resp.json()) as { tab_id: string };
+    return { id: data.tab_id, tab_id: data.tab_id };
   }
 
-  /** Charge a tab (provider-side). */
-  async chargeTab(tabId: string, amount: number): Promise<{ status: string }> {
+  /** Charge a tab (provider-side). Accepts amount as number or object with details. */
+  async chargeTab(
+    tabId: string,
+    amountOrOpts: number | { amount: number; cumulative: number; callCount: number; providerSig: string }
+  ): Promise<{ status: string }> {
+    const body = typeof amountOrOpts === "number"
+      ? { amount: Math.round(amountOrOpts * 1_000_000) }
+      : {
+          amount: Math.round(amountOrOpts.amount * 1_000_000),
+          cumulative: Math.round(amountOrOpts.cumulative * 1_000_000),
+          call_count: amountOrOpts.callCount,
+          provider_sig: amountOrOpts.providerSig,
+        };
     const resp = await fetch(`${this._apiUrl}/tabs/${tabId}/charge`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: Math.round(amount * 1_000_000) }),
+      body: JSON.stringify(body),
     });
     if (!resp.ok) throw new Error(`chargeTab failed: ${resp.status}`);
     return (await resp.json()) as { status: string };
   }
 
-  /** Close a tab. */
-  async closeTab(tabId: string): Promise<{ status: string }> {
+  /** Close a tab. Optionally provide final settlement details. */
+  async closeTab(
+    tabId: string,
+    options?: { finalAmount?: number; providerSig?: string }
+  ): Promise<{ status: string }> {
+    const body: Record<string, unknown> = {};
+    if (options?.finalAmount !== undefined) body.final_amount = Math.round(options.finalAmount * 1_000_000);
+    if (options?.providerSig) body.provider_sig = options.providerSig;
     const resp = await fetch(`${this._apiUrl}/tabs/${tabId}/close`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
     if (!resp.ok) throw new Error(`closeTab failed: ${resp.status}`);
     return (await resp.json()) as { status: string };
+  }
+
+  /** Fetch contract addresses from the API. */
+  async getContracts(): Promise<{ router: string; tab: string; direct: string; fee: string; usdc: string; chainId: number }> {
+    const resp = await fetch(`${this._apiUrl}/contracts`);
+    if (!resp.ok) throw new Error(`getContracts failed: ${resp.status}`);
+    const data = (await resp.json()) as Record<string, unknown>;
+    return {
+      router: (data.router as string) ?? "",
+      tab: (data.tab as string) ?? "",
+      direct: (data.direct as string) ?? "",
+      fee: (data.fee as string) ?? "",
+      usdc: (data.usdc as string) ?? "",
+      chainId: (data.chain_id as number) ?? 0,
+    };
+  }
+
+  /** Sign a tab charge (provider-side EIP-712 signature for charge authorization). */
+  async signTabCharge(
+    contractAddr: string,
+    tabId: string,
+    cumulativeUnits: bigint | number,
+    callCount: number
+  ): Promise<string> {
+    // Stub: real implementation will use viem signTypedData
+    void this._privateKey;
+    void contractAddr;
+    void tabId;
+    void cumulativeUnits;
+    void callCount;
+    return "0x" + "0".repeat(130);
   }
 
   // Private: sign a hash with the wallet's private key
