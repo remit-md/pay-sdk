@@ -123,3 +123,106 @@ class TestWebhooks:
         )
         wh = client.register_webhook("https://example.com/hook", events=["tab.charged"])
         assert wh.webhook_id == "wh_123"
+
+
+class TestX402Request:
+    def test_no_payment_needed(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        """200 response — no payment required."""
+        httpx_mock.add_response(url="https://api.example.com/data", json={"data": "ok"})
+        resp = client.request("https://api.example.com/data")
+        assert resp.status_code == 200
+
+    def test_402_direct_settlement(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        """402 with direct settlement — SDK pays and retries."""
+        # First request: 402
+        httpx_mock.add_response(
+            url="https://api.example.com/premium",
+            json={
+                "scheme": "exact",
+                "amount": 1_000_000,
+                "to": VALID_ADDR,
+                "settlement": "direct",
+            },
+            status_code=402,
+        )
+        # Direct payment to server
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/direct",
+            method="POST",
+            json={"tx_hash": "0xabc", "status": "confirmed", "amount": 1_000_000, "fee": 10_000},
+        )
+        # Retry after payment: 200
+        httpx_mock.add_response(
+            url="https://api.example.com/premium",
+            json={"data": "premium content"},
+        )
+
+        resp = client.request("https://api.example.com/premium")
+        assert resp.status_code == 200
+
+    def test_402_tab_settlement_with_existing_tab(
+        self, client: PayClient, httpx_mock: HTTPXMock
+    ) -> None:
+        """402 with tab settlement — charges existing tab."""
+        # First request: 402
+        httpx_mock.add_response(
+            url="https://api.example.com/metered",
+            json={
+                "scheme": "exact",
+                "amount": 100_000,
+                "to": PROVIDER_ADDR,
+                "settlement": "tab",
+            },
+            status_code=402,
+        )
+        # List tabs — returns existing open tab
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/tabs",
+            method="GET",
+            json=[
+                {
+                    "tab_id": "tab_existing",
+                    "provider": PROVIDER_ADDR,
+                    "amount": 10_000_000,
+                    "balance_remaining": 9_000_000,
+                    "total_charged": 1_000_000,
+                    "charge_count": 5,
+                    "max_charge_per_call": 500_000,
+                    "status": "open",
+                }
+            ],
+        )
+        # Charge tab
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/tabs/tab_existing/charge",
+            method="POST",
+            json={"charge_id": "ch_1", "status": "approved"},
+        )
+        # Retry: 200
+        httpx_mock.add_response(
+            url="https://api.example.com/metered",
+            json={"data": "metered content"},
+        )
+
+        resp = client.request("https://api.example.com/metered")
+        assert resp.status_code == 200
+
+
+class TestFunding:
+    def test_fund_link(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/fund-link?amount=10000000",
+            method="GET",
+            json={"url": "https://pay.coinbase.com/onramp?amount=10"},
+        )
+        link = client.create_fund_link(amount=10_000_000)
+        assert "coinbase" in link
+
+    def test_withdraw_link(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/withdraw-link?amount=5000000",
+            method="GET",
+            json={"url": "https://pay-skill.com/withdraw?amount=5"},
+        )
+        link = client.create_withdraw_link(amount=5_000_000)
+        assert "withdraw" in link
