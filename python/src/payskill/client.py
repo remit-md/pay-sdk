@@ -129,6 +129,9 @@ class PayClient:
 
     # ── x402 ────────────────────────────────────────────────────────
 
+    _X402_TAB_MULTIPLIER = 10  # Auto-open tab at 10x per-call price
+    _X402_TAB_MIN = _TAB_MIN  # $5.00 minimum tab
+
     def request(
         self,
         url: str,
@@ -138,12 +141,86 @@ class PayClient:
     ) -> httpx.Response:
         """Make an x402-aware HTTP request.
 
-        If the server returns 402, the SDK handles payment automatically.
+        If the server returns 402, the SDK handles payment automatically
+        using either direct payment or tab-based settlement.
         """
-        # Stub: full x402 flow will be implemented when server endpoints exist
-        response = httpx.request(method, url, json=body, headers=headers, timeout=30.0)
-        # TODO: handle 402 → sign → retry (requires server endpoints)
-        return response
+        resp = httpx.request(method, url, json=body, headers=headers or {}, timeout=30.0)
+        if resp.status_code != 402:
+            return resp
+
+        return self._handle_402(resp, url, method, body, headers or {})
+
+    def _handle_402(
+        self,
+        resp: httpx.Response,
+        url: str,
+        method: str,
+        body: Any,
+        headers: dict[str, str],
+    ) -> httpx.Response:
+        """Handle a 402 Payment Required response."""
+        try:
+            requirements = resp.json()
+        except Exception as e:
+            raise PayServerError(f"Invalid 402 response: {e}", status_code=402) from e
+
+        settlement = requirements.get("settlement", "direct")
+        amount = int(requirements.get("amount", 0))
+        provider = requirements.get("to", "")
+
+        if settlement == "tab":
+            return self._settle_via_tab(requirements, url, method, body, headers, provider, amount)
+        return self._settle_via_direct(requirements, url, method, body, headers, provider, amount)
+
+    def _settle_via_direct(
+        self,
+        requirements: dict[str, Any],
+        url: str,
+        method: str,
+        body: Any,
+        headers: dict[str, str],
+        provider: str,
+        amount: int,
+    ) -> httpx.Response:
+        """Settle via direct payment: sign permit, pay, retry."""
+        result = self.pay_direct(provider, amount)
+
+        payment_headers = {
+            **headers,
+            "X-Payment-Tx": result.tx_hash or "",
+            "X-Payment-Status": result.status,
+        }
+        return httpx.request(method, url, json=body, headers=payment_headers, timeout=30.0)
+
+    def _settle_via_tab(
+        self,
+        requirements: dict[str, Any],
+        url: str,
+        method: str,
+        body: Any,
+        headers: dict[str, str],
+        provider: str,
+        amount: int,
+    ) -> httpx.Response:
+        """Settle via tab: find/open tab, charge, retry."""
+        # Look for existing open tab with this provider
+        tabs = self.list_tabs()
+        tab = next((t for t in tabs if t.provider == provider and t.status.value == "open"), None)
+
+        if tab is None:
+            # Auto-open tab: 10x per-call price, minimum $5
+            tab_amount = max(amount * self._X402_TAB_MULTIPLIER, self._X402_TAB_MIN)
+            tab = self.open_tab(provider, tab_amount, max_charge_per_call=amount)
+
+        # Charge the tab via server
+        charge_data = self._post(f"/tabs/{tab.tab_id}/charge", {"amount": amount})
+
+        payment_headers = {
+            **headers,
+            "X-Payment-Tab": tab.tab_id,
+            "X-Payment-Charge": charge_data.get("charge_id", ""),
+        }
+        return httpx.request(method, url, json=body, headers=payment_headers, timeout=30.0)
 
     # ── Wallet ──────────────────────────────────────────────────────
 

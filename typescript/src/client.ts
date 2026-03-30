@@ -115,18 +115,95 @@ export class PayClient {
 
   // ── x402 ────────────────────────────────────────────────────────
 
+  private static readonly X402_TAB_MULTIPLIER = 10;
+
   async request(
     url: string,
     options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}
   ): Promise<Response> {
-    // Stub: full x402 flow will be implemented when server endpoints exist
-    const resp = await fetch(url, {
-      method: options.method ?? "GET",
-      body: options.body ? JSON.stringify(options.body) : undefined,
-      headers: options.headers,
+    const method = options.method ?? "GET";
+    const headers = options.headers ?? {};
+    const bodyStr = options.body ? JSON.stringify(options.body) : undefined;
+
+    const resp = await fetch(url, { method, body: bodyStr, headers });
+
+    if (resp.status !== 402) return resp;
+
+    return this.handle402(resp, url, method, bodyStr, headers);
+  }
+
+  private async handle402(
+    resp: Response,
+    url: string,
+    method: string,
+    body: string | undefined,
+    headers: Record<string, string>
+  ): Promise<Response> {
+    const requirements = (await resp.json()) as {
+      settlement?: string;
+      amount?: number;
+      to?: string;
+    };
+
+    const settlement = requirements.settlement ?? "direct";
+    const amount = Number(requirements.amount ?? 0);
+    const provider = requirements.to ?? "";
+
+    if (settlement === "tab") {
+      return this.settleViaTab(url, method, body, headers, provider, amount);
+    }
+    return this.settleViaDirect(url, method, body, headers, provider, amount);
+  }
+
+  private async settleViaDirect(
+    url: string,
+    method: string,
+    body: string | undefined,
+    headers: Record<string, string>,
+    provider: string,
+    amount: number
+  ): Promise<Response> {
+    const result = await this.payDirect(provider, amount);
+    return fetch(url, {
+      method,
+      body,
+      headers: {
+        ...headers,
+        "X-Payment-Tx": result.txHash ?? "",
+        "X-Payment-Status": result.status,
+      },
     });
-    // TODO: handle 402 → sign → retry
-    return resp;
+  }
+
+  private async settleViaTab(
+    url: string,
+    method: string,
+    body: string | undefined,
+    headers: Record<string, string>,
+    provider: string,
+    amount: number
+  ): Promise<Response> {
+    const tabs = await this.listTabs();
+    let tab = tabs.find((t) => t.provider === provider && t.status === "open");
+
+    if (!tab) {
+      const tabAmount = Math.max(amount * PayClient.X402_TAB_MULTIPLIER, TAB_MIN);
+      tab = await this.openTab(provider, tabAmount, { maxChargePerCall: amount });
+    }
+
+    const chargeData = await this.post<{ chargeId: string }>(`/tabs/${tab.tabId}/charge`, {
+      amount,
+    });
+
+    return fetch(url, {
+      method,
+      body,
+      headers: {
+        ...headers,
+        "X-Payment-Tab": tab.tabId,
+        "X-Payment-Charge": chargeData.chargeId ?? "",
+      },
+    });
   }
 
   // ── Wallet ──────────────────────────────────────────────────────
