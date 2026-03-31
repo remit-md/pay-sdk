@@ -49,10 +49,10 @@ class StatusResponse(BaseModel):
 
     @property
     def balance(self) -> int:
-        """Balance in micro-units (backwards compat)."""
+        """Balance in micro-units (backwards compat). Server returns raw micro-units."""
         if self.balance_usdc is None:
             return 0
-        return int(float(self.balance_usdc) * 1_000_000)
+        return int(float(self.balance_usdc))
 
 
 class WebhookRegistration(BaseModel):

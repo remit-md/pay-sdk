@@ -101,7 +101,10 @@ export class Wallet {
     const resp = await this._authFetch("/status");
     if (!resp.ok) throw new Error(`balance fetch failed: ${resp.status}`);
     const data = (await resp.json()) as { balance_usdc?: string };
-    return data.balance_usdc ? parseFloat(data.balance_usdc) : 0;
+    if (!data.balance_usdc) return 0;
+    const raw = parseFloat(data.balance_usdc);
+    // Server returns raw micro-units (USDC 6 decimals). Convert to dollars.
+    return raw / 1_000_000;
   }
 
   /** Sign an EIP-2612 permit for the given flow type and amount. */
