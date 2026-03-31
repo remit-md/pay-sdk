@@ -76,7 +76,7 @@ describe("E2E: Mint testnet USDC", { skip }, () => {
     const headers = await buildAuthHeaders(
       TESTNET_KEY as Hex,
       "POST",
-      "/mint",
+      "/api/v1/mint",
       { chainId: CHAIN_ID, routerAddress: ROUTER_ADDRESS }
     );
     const resp = await fetch(`${TESTNET_URL}/mint`, {
@@ -84,8 +84,9 @@ describe("E2E: Mint testnet USDC", { skip }, () => {
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify({ amount: 10_000_000 }),
     });
-    assert.equal(resp.status, 200, `mint failed: ${await resp.text()}`);
-    const body = (await resp.json()) as { tx_hash: string; amount: number; to: string };
+    const bodyText = await resp.text();
+    assert.equal(resp.status, 200, `mint failed: ${bodyText}`);
+    const body = JSON.parse(bodyText) as { tx_hash: string; amount: number; to: string };
     assert.ok(body.tx_hash, "should return a tx_hash");
     assert.equal(body.amount, 10_000_000);
     assert.ok(body.to.startsWith("0x"));
@@ -141,15 +142,15 @@ describe("E2E: Client validation", { skip }, () => {
     client = makeClient();
   });
 
-  it("rejects invalid address", () => {
-    assert.throws(
+  it("rejects invalid address", async () => {
+    await assert.rejects(
       () => client.payDirect("not-an-address", 1_000_000),
       (err: unknown) => err instanceof PayValidationError
     );
   });
 
-  it("rejects amount below minimum", () => {
-    assert.throws(
+  it("rejects amount below minimum", async () => {
+    await assert.rejects(
       () => client.payDirect("0x" + "a1".repeat(20), 500_000),
       (err: unknown) => err instanceof PayValidationError
     );
