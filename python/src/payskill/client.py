@@ -63,6 +63,11 @@ class PayClient:
         self._chain_id = chain_id
         self._router_address = router_address
         self._http = httpx.Client(base_url=self._api_url, timeout=30.0)
+        # Extract URL path prefix for auth signing (e.g., "/api/v1" from
+        # "http://host:3001/api/v1"). The server verifies the full path.
+        from urllib.parse import urlparse
+
+        self._base_path = urlparse(self._api_url).path.rstrip("/")
 
     def close(self) -> None:
         """Close the HTTP client."""
@@ -281,10 +286,14 @@ class PayClient:
     # ── Auth headers ────────────────────────────────────────────────
 
     def _auth_headers(self, method: str, path: str) -> dict[str, str]:
-        """Build X-Pay-* auth headers if auth config is available."""
+        """Build X-Pay-* auth headers if auth config is available.
+
+        Signs the full URL path the server sees (base_path + relative path).
+        """
         if self._private_key and self._chain_id and self._router_address:
+            full_path = self._base_path + path
             return build_auth_headers(
-                self._private_key, method, path, self._chain_id, self._router_address
+                self._private_key, method, full_path, self._chain_id, self._router_address
             )
         return {}
 
