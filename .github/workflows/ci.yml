@@ -31,8 +31,15 @@ jobs:
         run: cd python && ruff format --check .
       - name: Type check
         run: cd python && mypy src/
-      - name: Test with coverage gate
-        run: cd python && pytest -v --cov=payskill --cov-fail-under=40 --cov-report=term-missing
+      - name: Unit tests
+        run: cd python && pytest -v --cov=payskill --cov-fail-under=40 --cov-report=term-missing -m "not e2e"
+      - name: E2E tests (testnet)
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          PAYSKILL_TESTNET_KEY: ${{ secrets.PAYSKILL_TESTNET_KEY }}
+          PAYSKILL_TESTNET_URL: http://204.168.133.111:3001/api/v1
+        run: cd python && pytest -v -m "e2e" --timeout=60
 
   typescript:
     name: SDK TypeScript
@@ -53,5 +60,12 @@ jobs:
         run: cd typescript && pnpm tsc --noEmit
       - name: Build
         run: cd typescript && pnpm tsc
-      - name: Test
+      - name: Unit tests
         run: cd typescript && pnpm test
+      - name: E2E tests (testnet)
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          PAYSKILL_TESTNET_KEY: ${{ secrets.PAYSKILL_TESTNET_KEY }}
+          PAYSKILL_TESTNET_URL: http://204.168.133.111:3001/api/v1
+        run: cd typescript && node --import tsx --test tests/test_e2e.ts

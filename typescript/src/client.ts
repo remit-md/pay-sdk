@@ -72,12 +72,21 @@ export interface PayClientOptions {
 
 export class PayClient {
   private readonly apiUrl: string;
+  /** URL path prefix extracted from apiUrl (e.g., "/api/v1"). */
+  private readonly _basePath: string;
   private readonly signer: Signer;
   private readonly _privateKey: Hex | null;
   private readonly _authConfig: AuthConfig | null;
 
   constructor(options: PayClientOptions = {}) {
     this.apiUrl = (options.apiUrl ?? DEFAULT_API_URL).replace(/\/+$/, "");
+    // Extract the URL path to prepend to auth signing paths.
+    // e.g., "http://host:3001/api/v1" → "/api/v1"
+    try {
+      this._basePath = new URL(this.apiUrl).pathname.replace(/\/+$/, "");
+    } catch {
+      this._basePath = "";
+    }
     if (typeof options.signer === "object") {
       this.signer = options.signer;
     } else {
@@ -279,7 +288,17 @@ export class PayClient {
   // ── Wallet ──────────────────────────────────────────────────────
 
   async getStatus(): Promise<StatusResponse> {
-    return this.get<StatusResponse>("/status");
+    const raw = await this.get<{
+      wallet: string;
+      balance_usdc: string | null;
+      open_tabs: number;
+      total_locked: number;
+    }>("/status");
+    return {
+      address: raw.wallet,
+      balance: raw.balance_usdc ? Number(raw.balance_usdc) : 0,
+      openTabs: [],
+    };
   }
 
   // ── Webhooks ────────────────────────────────────────────────────
@@ -291,11 +310,13 @@ export class PayClient {
     const payload: Record<string, unknown> = { url };
     if (options.events) payload.events = options.events;
     if (options.secret) payload.secret = options.secret;
-    return this.post<WebhookRegistration>("/webhooks", payload);
+    const raw = await this.post<{ id: string; wallet: string; url: string; events: string[]; active: boolean }>("/webhooks", payload);
+    return { webhookId: raw.id, url: raw.url, events: raw.events };
   }
 
   async listWebhooks(): Promise<WebhookRegistration[]> {
-    return this.get<WebhookRegistration[]>("/webhooks");
+    const raw = await this.get<{ id: string; wallet: string; url: string; events: string[]; active: boolean }[]>("/webhooks");
+    return raw.map(w => ({ webhookId: w.id, url: w.url, events: w.events }));
   }
 
   async deleteWebhook(webhookId: string): Promise<void> {
@@ -370,11 +391,15 @@ export class PayClient {
   ): Promise<AuthHeaders | null> {
     if (!this._authConfig) return null;
 
+    // Sign the full URL path the server sees (basePath + relative path).
+    // e.g., basePath="/api/v1" + path="/status" → "/api/v1/status"
+    const fullPath = this._basePath + path;
+
     if (this._privateKey) {
       return buildAuthHeaders(
         this._privateKey,
         method,
-        path,
+        fullPath,
         this._authConfig
       );
     }
@@ -383,7 +408,7 @@ export class PayClient {
       return buildAuthHeadersWithSigner(
         this.signer,
         method,
-        path,
+        fullPath,
         this._authConfig
       );
     }
