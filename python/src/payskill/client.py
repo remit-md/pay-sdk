@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from payskill.auth import build_auth_headers
 from payskill.errors import PayNetworkError, PayServerError, PayValidationError
 from payskill.models import (
     DirectPaymentResult,
@@ -47,12 +48,20 @@ class PayClient:
         self,
         api_url: str = DEFAULT_API_URL,
         signer: str | Signer = "cli",
+        private_key: str | None = None,
+        chain_id: int | None = None,
+        router_address: str | None = None,
         **signer_kwargs: Any,
     ) -> None:
         self._api_url = api_url.rstrip("/")
+        if private_key:
+            signer_kwargs["key"] = private_key
         self._signer = (
             signer if isinstance(signer, Signer) else create_signer(signer, **signer_kwargs)
         )
+        self._private_key = private_key
+        self._chain_id = chain_id
+        self._router_address = router_address
         self._http = httpx.Client(base_url=self._api_url, timeout=30.0)
 
     def close(self) -> None:
@@ -269,25 +278,35 @@ class PayClient:
         data = self._get("/withdraw-link", params=params)
         return str(data.get("url", ""))
 
+    # ── Auth headers ────────────────────────────────────────────────
+
+    def _auth_headers(self, method: str, path: str) -> dict[str, str]:
+        """Build X-Pay-* auth headers if auth config is available."""
+        if self._private_key and self._chain_id and self._router_address:
+            return build_auth_headers(
+                self._private_key, method, path, self._chain_id, self._router_address
+            )
+        return {}
+
     # ── HTTP helpers ────────────────────────────────────────────────
 
     def _get(self, path: str, params: dict[str, str] | None = None) -> Any:
         try:
-            resp = self._http.get(path, params=params)
+            resp = self._http.get(path, params=params, headers=self._auth_headers("GET", path))
         except httpx.HTTPError as e:
             raise PayNetworkError(str(e)) from e
         return self._handle_response(resp)
 
     def _post(self, path: str, payload: dict[str, Any]) -> Any:
         try:
-            resp = self._http.post(path, json=payload)
+            resp = self._http.post(path, json=payload, headers=self._auth_headers("POST", path))
         except httpx.HTTPError as e:
             raise PayNetworkError(str(e)) from e
         return self._handle_response(resp)
 
     def _delete(self, path: str) -> Any:
         try:
-            resp = self._http.delete(path)
+            resp = self._http.delete(path, headers=self._auth_headers("DELETE", path))
         except httpx.HTTPError as e:
             raise PayNetworkError(str(e)) from e
         return self._handle_response(resp)
