@@ -18,7 +18,24 @@ export type {
 } from "./models.js";
 
 export type { Signer } from "./signer.js";
-export { CliSigner, RawKeySigner, CallbackSigner, createSigner } from "./signer.js";
+export {
+  CliSigner,
+  RawKeySigner,
+  CallbackSigner,
+  createSigner,
+} from "./signer.js";
 
 export { Wallet, PrivateKeySigner } from "./wallet.js";
-export type { WalletOptions, FundLinkOptions, FundLink, PermitResult } from "./wallet.js";
+export type {
+  WalletOptions,
+  FundLinkOptions,
+  FundLink,
+  PermitResult,
+} from "./wallet.js";
+
+export {
+  buildAuthHeaders,
+  buildAuthHeadersWithSigner,
+  computeEip712Hash,
+} from "./auth.js";
+export type { AuthConfig, AuthHeaders } from "./auth.js";

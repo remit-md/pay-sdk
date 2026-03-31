@@ -6,6 +6,10 @@
  * The PayClient is lower-level (HTTP only); Wallet adds signing + state.
  */
 
+import { type Hex, type Address } from "viem";
+import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
+import { buildAuthHeaders, type AuthConfig } from "./auth.js";
+
 export interface WalletOptions {
   privateKey: string;
   chain: string;
@@ -32,24 +36,54 @@ export interface PermitResult {
 
 export class Wallet {
   readonly address: string;
-  private readonly _privateKey: string;
+  private readonly _privateKey: Hex;
   private readonly _apiUrl: string;
   private readonly _chain: string;
-  private readonly _routerAddress: string;
+  private readonly _routerAddress: Address;
+  private readonly _account: PrivateKeyAccount;
 
   constructor(options: WalletOptions) {
-    this._privateKey = options.privateKey;
+    this._privateKey = normalizeKey(options.privateKey);
     this._apiUrl = options.apiUrl;
     this._chain = options.chain;
-    this._routerAddress = options.routerAddress;
+    this._routerAddress = options.routerAddress as Address;
+    this._account = privateKeyToAccount(this._privateKey);
+    this.address = this._account.address;
+  }
 
-    // Derive address from private key (stub: generates deterministic address from key)
-    this.address = deriveAddress(options.privateKey);
+  private get _authConfig(): AuthConfig {
+    return {
+      chainId: parseInt(this._chain, 10) || 8453,
+      routerAddress: this._routerAddress,
+    };
+  }
+
+  /** Build authenticated fetch headers for an API request. */
+  private async _authFetch(
+    path: string,
+    init: RequestInit = {}
+  ): Promise<Response> {
+    const method = (init.method ?? "GET").toUpperCase();
+    const authHeaders = await buildAuthHeaders(
+      this._privateKey,
+      method,
+      path,
+      this._authConfig
+    );
+    const resp = await fetch(`${this._apiUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+        ...(init.headers as Record<string, string> | undefined),
+      },
+    });
+    return resp;
   }
 
   /** Get USDC balance in human-readable units (e.g., 142.50). */
   async balance(): Promise<number> {
-    const resp = await fetch(`${this._apiUrl}/status/${encodeURIComponent(this.address)}`);
+    const resp = await this._authFetch("/status");
     if (!resp.ok) throw new Error(`balance fetch failed: ${resp.status}`);
     const data = (await resp.json()) as { balance?: string };
     return data.balance ? parseFloat(data.balance) : 0;
@@ -57,13 +91,11 @@ export class Wallet {
 
   /** Sign an EIP-2612 permit for the given flow type and amount. */
   async signPermit(flow: string, amount: number): Promise<PermitResult> {
-    const resp = await fetch(`${this._apiUrl}/permits/prepare`, {
+    const resp = await this._authFetch("/permits/prepare", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ flow, amount, signer: this.address }),
     });
     if (!resp.ok) throw new Error(`permit prepare failed: ${resp.status}`);
-    // Server returns typed data hash — we sign it
     const data = (await resp.json()) as { hash: string; deadline: number };
     const sig = await this._signHash(data.hash);
     return { ...sig, deadline: data.deadline };
@@ -76,9 +108,8 @@ export class Wallet {
     memo: string,
     options?: { permit?: PermitResult }
   ): Promise<{ tx_hash: string; status: string }> {
-    const resp = await fetch(`${this._apiUrl}/direct`, {
+    const resp = await this._authFetch("/direct", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         from: this.address,
         to,
@@ -88,7 +119,7 @@ export class Wallet {
       }),
     });
     if (!resp.ok) {
-      const err = await resp.json().catch(() => ({})) as { error?: string };
+      const err = (await resp.json().catch(() => ({}))) as { error?: string };
       throw new Error(err.error ?? `payDirect failed: ${resp.status}`);
     }
     return (await resp.json()) as { tx_hash: string; status: string };
@@ -96,9 +127,8 @@ export class Wallet {
 
   /** Create a one-time fund link (opens the dashboard). */
   async createFundLink(options?: FundLinkOptions): Promise<FundLink> {
-    const resp = await fetch(`${this._apiUrl}/links`, {
+    const resp = await this._authFetch("/links", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "fund",
         wallet_address: this.address,
@@ -116,9 +146,8 @@ export class Wallet {
     events: string[],
     _chains?: string[]
   ): Promise<{ id: string }> {
-    const resp = await fetch(`${this._apiUrl}/webhooks`, {
+    const resp = await this._authFetch("/webhooks", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url, events, wallet: this.address }),
     });
     if (!resp.ok) throw new Error(`registerWebhook failed: ${resp.status}`);
@@ -127,7 +156,14 @@ export class Wallet {
 
   /** Open a tab with a provider (positional or object form). */
   async openTab(
-    providerOrOpts: string | { to: string; limit: number; perUnit: number; permit?: PermitResult },
+    providerOrOpts:
+      | string
+      | {
+          to: string;
+          limit: number;
+          perUnit: number;
+          permit?: PermitResult;
+        },
     amount?: number,
     maxChargePerCall?: number,
     options?: { permit?: PermitResult }
@@ -149,9 +185,8 @@ export class Wallet {
       permit = providerOrOpts.permit;
     }
 
-    const resp = await fetch(`${this._apiUrl}/tabs`, {
+    const resp = await this._authFetch("/tabs", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         from: this.address,
         provider,
@@ -165,47 +200,61 @@ export class Wallet {
     return { id: data.tab_id, tab_id: data.tab_id };
   }
 
-  /** Charge a tab (provider-side). Accepts amount as number or object with details. */
+  /** Charge a tab (provider-side). */
   async chargeTab(
     tabId: string,
-    amountOrOpts: number | { amount: number; cumulative: number; callCount: number; providerSig: string }
+    amountOrOpts:
+      | number
+      | {
+          amount: number;
+          cumulative: number;
+          callCount: number;
+          providerSig: string;
+        }
   ): Promise<{ status: string }> {
-    const body = typeof amountOrOpts === "number"
-      ? { amount: Math.round(amountOrOpts * 1_000_000) }
-      : {
-          amount: Math.round(amountOrOpts.amount * 1_000_000),
-          cumulative: Math.round(amountOrOpts.cumulative * 1_000_000),
-          call_count: amountOrOpts.callCount,
-          provider_sig: amountOrOpts.providerSig,
-        };
-    const resp = await fetch(`${this._apiUrl}/tabs/${tabId}/charge`, {
+    const body =
+      typeof amountOrOpts === "number"
+        ? { amount: Math.round(amountOrOpts * 1_000_000) }
+        : {
+            amount: Math.round(amountOrOpts.amount * 1_000_000),
+            cumulative: Math.round(amountOrOpts.cumulative * 1_000_000),
+            call_count: amountOrOpts.callCount,
+            provider_sig: amountOrOpts.providerSig,
+          };
+    const resp = await this._authFetch(`/tabs/${tabId}/charge`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!resp.ok) throw new Error(`chargeTab failed: ${resp.status}`);
     return (await resp.json()) as { status: string };
   }
 
-  /** Close a tab. Optionally provide final settlement details. */
+  /** Close a tab. */
   async closeTab(
     tabId: string,
     options?: { finalAmount?: number; providerSig?: string }
   ): Promise<{ status: string }> {
     const body: Record<string, unknown> = {};
-    if (options?.finalAmount !== undefined) body.final_amount = Math.round(options.finalAmount * 1_000_000);
+    if (options?.finalAmount !== undefined)
+      body.final_amount = Math.round(options.finalAmount * 1_000_000);
     if (options?.providerSig) body.provider_sig = options.providerSig;
-    const resp = await fetch(`${this._apiUrl}/tabs/${tabId}/close`, {
+    const resp = await this._authFetch(`/tabs/${tabId}/close`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!resp.ok) throw new Error(`closeTab failed: ${resp.status}`);
     return (await resp.json()) as { status: string };
   }
 
-  /** Fetch contract addresses from the API. */
-  async getContracts(): Promise<{ router: string; tab: string; direct: string; fee: string; usdc: string; chainId: number }> {
+  /** Fetch contract addresses from the API (public, no auth). */
+  async getContracts(): Promise<{
+    router: string;
+    tab: string;
+    direct: string;
+    fee: string;
+    usdc: string;
+    chainId: number;
+  }> {
     const resp = await fetch(`${this._apiUrl}/contracts`);
     if (!resp.ok) throw new Error(`getContracts failed: ${resp.status}`);
     const data = (await resp.json()) as Record<string, unknown>;
@@ -219,37 +268,63 @@ export class Wallet {
     };
   }
 
-  /** Sign a tab charge (provider-side EIP-712 signature for charge authorization). */
+  /** Sign a tab charge (provider-side EIP-712 signature). */
   async signTabCharge(
     contractAddr: string,
     tabId: string,
     cumulativeUnits: bigint | number,
     callCount: number
   ): Promise<string> {
-    // Stub: real implementation will use viem signTypedData
-    void this._privateKey;
-    void contractAddr;
-    void tabId;
-    void cumulativeUnits;
-    void callCount;
-    return "0x" + "0".repeat(130);
+    return this._account.signTypedData({
+      domain: {
+        name: "pay",
+        version: "0.1",
+        chainId: parseInt(this._chain, 10) || 8453,
+        verifyingContract: contractAddr as Address,
+      },
+      types: {
+        TabCharge: [
+          { name: "tabId", type: "string" },
+          { name: "cumulativeUnits", type: "uint256" },
+          { name: "callCount", type: "uint256" },
+        ],
+      },
+      primaryType: "TabCharge",
+      message: {
+        tabId,
+        cumulativeUnits: BigInt(cumulativeUnits),
+        callCount: BigInt(callCount),
+      },
+    });
   }
 
-  // Private: sign a hash with the wallet's private key
-  private async _signHash(hash: string): Promise<{ v: number; r: string; s: string }> {
-    // Will use viem/ethers for real signing when server exists
-    void hash;
-    void this._privateKey;
-    return { v: 27, r: "0x" + "0".repeat(64), s: "0x" + "0".repeat(64) };
+  /** Sign a raw hash with the wallet's private key. */
+  private async _signHash(
+    hash: string
+  ): Promise<{ v: number; r: string; s: string }> {
+    const signature = await this._account.signMessage({
+      message: { raw: hash as Hex },
+    });
+    // Parse 65-byte signature into v, r, s
+    const sigClean = signature.startsWith("0x")
+      ? signature.slice(2)
+      : signature;
+    const r = "0x" + sigClean.slice(0, 64);
+    const s = "0x" + sigClean.slice(64, 128);
+    const v = parseInt(sigClean.slice(128, 130), 16);
+    return { v, r, s };
   }
 }
 
 /** PrivateKeySigner — for manual EIP-712 signing in the playground. */
 export class PrivateKeySigner {
-  private readonly _key: string;
+  private readonly _account: PrivateKeyAccount;
+  readonly address: string;
 
   constructor(privateKey: string) {
-    this._key = privateKey;
+    const key = normalizeKey(privateKey);
+    this._account = privateKeyToAccount(key);
+    this.address = this._account.address;
   }
 
   /** Sign EIP-712 typed data. Returns hex signature. */
@@ -258,35 +333,21 @@ export class PrivateKeySigner {
     types: Record<string, Array<{ name: string; type: string }>>,
     message: Record<string, unknown>
   ): Promise<string> {
-    // Stub: will use viem signTypedData when real signing is needed
-    void this._key;
-    void domain;
-    void types;
-    void message;
-    return "0x" + "0".repeat(130);
+    return this._account.signTypedData({
+      domain: domain as Parameters<
+        PrivateKeyAccount["signTypedData"]
+      >[0]["domain"],
+      types: types as Parameters<
+        PrivateKeyAccount["signTypedData"]
+      >[0]["types"],
+      primaryType: Object.keys(types)[0],
+      message,
+    });
   }
 }
 
-/** Derive an Ethereum address from a private key (deterministic stub). */
-function deriveAddress(privateKey: string): string {
-  // Simple deterministic derivation for the playground
-  // Real implementation will use viem's privateKeyToAddress
-  const hash = simpleHash(privateKey);
-  return "0x" + hash.slice(0, 40);
-}
-
-function simpleHash(input: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  // Expand to 40 hex chars
-  const parts: string[] = [];
-  for (let i = 0; i < 10; i++) {
-    h ^= (i * 0x9e3779b9);
-    h = Math.imul(h, 0x01000193);
-    parts.push((h >>> 0).toString(16).padStart(8, "0"));
-  }
-  return parts.join("").slice(0, 40);
+/** Normalize a private key to 0x-prefixed Hex. */
+function normalizeKey(key: string): Hex {
+  if (key.startsWith("0x")) return key as Hex;
+  return ("0x" + key) as Hex;
 }
