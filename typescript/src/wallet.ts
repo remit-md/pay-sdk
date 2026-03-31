@@ -51,6 +51,9 @@ export class Wallet {
   private readonly _routerAddress: Address;
   private readonly _account: PrivateKeyAccount;
 
+  /** URL path prefix extracted from apiUrl (e.g., "/api/v1"). */
+  private readonly _basePath: string;
+
   constructor(options: WalletOptions) {
     this._privateKey = normalizeKey(options.privateKey);
     this._apiUrl = options.apiUrl;
@@ -59,6 +62,11 @@ export class Wallet {
     this._routerAddress = options.routerAddress as Address;
     this._account = privateKeyToAccount(this._privateKey);
     this.address = this._account.address;
+    try {
+      this._basePath = new URL(options.apiUrl).pathname.replace(/\/+$/, "");
+    } catch {
+      this._basePath = "";
+    }
   }
 
   private get _authConfig(): AuthConfig {
@@ -74,10 +82,12 @@ export class Wallet {
     init: RequestInit = {}
   ): Promise<Response> {
     const method = (init.method ?? "GET").toUpperCase();
+    // Sign the full URL path the server sees (basePath + relative path).
+    const signPath = this._basePath + path;
     const authHeaders = await buildAuthHeaders(
       this._privateKey,
       method,
-      path,
+      signPath,
       this._authConfig
     );
     const resp = await fetch(`${this._apiUrl}${path}`, {
