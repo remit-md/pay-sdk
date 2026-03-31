@@ -111,9 +111,9 @@ class TestAuthRejection:
             return httpx.Response(
                 status_code=200,
                 json={
-                    "address": agent,
-                    "balance": 100_000_000,
-                    "open_tabs": [],
+                    "wallet": agent,
+                    "balance_usdc": "100000000",
+                    "open_tabs": 0,
                 },
             )
 
