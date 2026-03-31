@@ -272,16 +272,22 @@ class PayClient:
     # ── Funding ─────────────────────────────────────────────────────
 
     def create_fund_link(self, amount: int | None = None) -> str:
-        """Get a funding link (Coinbase Onramp)."""
-        params = {"amount": str(amount)} if amount else {}
-        data = self._get("/fund-link", params=params)
-        return str(data.get("url", ""))
+        """Construct a fund URL pointing to the dashboard."""
+        base = self._api_url.replace("/api/v1", "")
+        wallet = self._signer.address if hasattr(self._signer, "address") else ""
+        url = f"{base}/fund?wallet={wallet}"
+        if amount:
+            url += f"&amount={amount}"
+        return url
 
     def create_withdraw_link(self, amount: int | None = None) -> str:
-        """Get a withdrawal link."""
-        params = {"amount": str(amount)} if amount else {}
-        data = self._get("/withdraw-link", params=params)
-        return str(data.get("url", ""))
+        """Construct a withdraw URL pointing to the dashboard."""
+        base = self._api_url.replace("/api/v1", "")
+        wallet = self._signer.address if hasattr(self._signer, "address") else ""
+        url = f"{base}/withdraw?wallet={wallet}"
+        if amount:
+            url += f"&amount={amount}"
+        return url
 
     # ── Auth headers ────────────────────────────────────────────────
 
