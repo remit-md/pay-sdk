@@ -1,0 +1,73 @@
+name: Acceptance Tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: acceptance-tests
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    name: TypeScript SDK Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: acceptance/typescript
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install test dependencies
+        run: npm ci
+
+      - name: Install SDK dependencies
+        run: cd ../../typescript && npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run acceptance tests
+        env:
+          ACCEPTANCE_API_URL: ${{ secrets.ACCEPTANCE_API_URL }}
+          ACCEPTANCE_RPC_URL: ${{ secrets.ACCEPTANCE_RPC_URL }}
+        run: npm test
+
+  python:
+    name: Python SDK Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: acceptance/python
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+          pip install -e ../../python
+
+      - name: Run acceptance tests
+        env:
+          ACCEPTANCE_API_URL: ${{ secrets.ACCEPTANCE_API_URL }}
+          ACCEPTANCE_RPC_URL: ${{ secrets.ACCEPTANCE_RPC_URL }}
+        run: python -m pytest test_flows.py -v
