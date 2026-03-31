@@ -98,4 +98,4 @@ def derive_address(private_key: str) -> str:
         Checksummed Ethereum address.
     """
     account = Account.from_key(private_key)
-    return account.address
+    return str(account.address)

@@ -78,16 +78,16 @@ class RawKeySigner(Signer):
 
     @property
     def address(self) -> str:
-        return self._account.address  # type: ignore[no-any-return]
+        return str(self._account.address)
 
     def sign(self, hash_bytes: bytes) -> bytes:
         """Sign a 32-byte hash with ECDSA. Returns 65-byte r||s||v signature."""
         signed = self._account.unsafe_sign_hash(hash_bytes)
         # Construct 65-byte signature: r (32 bytes) || s (32 bytes) || v (1 byte)
-        r = signed.r.to_bytes(32, "big")
-        s = signed.s.to_bytes(32, "big")
-        v = bytes([signed.v])
-        return r + s + v
+        r_bytes = int(signed.r).to_bytes(32, "big")
+        s_bytes = int(signed.s).to_bytes(32, "big")
+        v_bytes = bytes([int(signed.v)])
+        return bytes(r_bytes + s_bytes + v_bytes)
 
 
 class CallbackSigner(Signer):
