@@ -22,6 +22,7 @@ import {
   type AuthHeaders,
 } from "./auth.js";
 import type { Hex, Address } from "viem";
+import { sign as viemSign, serializeSignature } from "viem/accounts";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const DIRECT_MIN = 1_000_000; // $1.00 USDC
@@ -113,10 +114,16 @@ export class PayClient {
   ): Promise<DirectPaymentResult> {
     validateAddress(to, "to");
     validateAmount(amount, DIRECT_MIN);
+
+    // Get contract addresses to determine the spender
+    const contracts = await this.get<{ direct: string }>("/contracts");
+    const permit = await this.prepareAndSignPermit(amount, contracts.direct);
+
     const data = await this.post<DirectPaymentResult>("/direct", {
       to,
       amount,
       memo: options.memo ?? "",
+      permit,
     });
     return data;
   }
@@ -136,10 +143,14 @@ export class PayClient {
         "maxChargePerCall"
       );
     }
+    const contracts = await this.get<{ tab: string }>("/contracts");
+    const permit = await this.prepareAndSignPermit(amount, contracts.tab);
+
     return this.post<Tab>("/tabs", {
       provider,
       amount,
       max_charge_per_call: options.maxChargePerCall,
+      permit,
     });
   }
 
@@ -149,7 +160,9 @@ export class PayClient {
 
   async topUpTab(tabId: string, amount: number): Promise<Tab> {
     validateAmount(amount, 1, "amount");
-    return this.post<Tab>(`/tabs/${tabId}/topup`, { amount });
+    const contracts = await this.get<{ tab: string }>("/contracts");
+    const permit = await this.prepareAndSignPermit(amount, contracts.tab);
+    return this.post<Tab>(`/tabs/${tabId}/topup`, { amount, permit });
   }
 
   async listTabs(): Promise<Tab[]> {
@@ -301,6 +314,52 @@ export class PayClient {
     const params = amount ? `?amount=${amount}` : "";
     const data = await this.get<{ url: string }>(`/withdraw-link${params}`);
     return data.url;
+  }
+
+  // ── Permit signing ────────────────────────────────────────────
+
+  /**
+   * Prepare and sign a USDC EIP-2612 permit.
+   *
+   * 1. Calls GET /api/v1/permit/prepare to get the EIP-712 hash
+   * 2. Signs the hash with the agent's private key
+   * 3. Returns {nonce, deadline, v, r, s} for inclusion in payment body
+   */
+  private async prepareAndSignPermit(
+    amount: number,
+    spender: string
+  ): Promise<{ nonce: string; deadline: number; v: number; r: string; s: string }> {
+    if (!this._privateKey) {
+      throw new PayValidationError(
+        "privateKey required for permit signing",
+        "privateKey"
+      );
+    }
+
+    const prepare = await this.get<{
+      hash: string;
+      nonce: string;
+      deadline: number;
+    }>(`/permit/prepare?amount=${amount}&spender=${spender}`);
+
+    // Sign the hash
+    const hashHex = prepare.hash as Hex;
+    const raw = await viemSign({ hash: hashHex, privateKey: this._privateKey });
+    const sigHex = serializeSignature(raw);
+
+    // Parse signature into v, r, s
+    const sigBytes = Buffer.from(sigHex.slice(2), "hex");
+    const r = "0x" + sigBytes.subarray(0, 32).toString("hex");
+    const s = "0x" + sigBytes.subarray(32, 64).toString("hex");
+    const v = sigBytes[64];
+
+    return {
+      nonce: prepare.nonce,
+      deadline: prepare.deadline,
+      v,
+      r,
+      s,
+    };
   }
 
   // ── Auth headers ──────────────────────────────────────────────
