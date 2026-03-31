@@ -15,6 +15,8 @@ export interface WalletOptions {
   chain: string;
   apiUrl: string;
   routerAddress: string;
+  /** Numeric chain ID for EIP-712 domain. If omitted, parsed from `chain`. */
+  chainId?: number;
 }
 
 export interface FundLinkOptions {
@@ -34,11 +36,18 @@ export interface PermitResult {
   deadline: number;
 }
 
+/** Map well-known chain names to numeric IDs. */
+const CHAIN_IDS: Record<string, number> = {
+  "base": 8453,
+  "base-sepolia": 84532,
+};
+
 export class Wallet {
   readonly address: string;
   private readonly _privateKey: Hex;
   private readonly _apiUrl: string;
   private readonly _chain: string;
+  private readonly _chainId: number;
   private readonly _routerAddress: Address;
   private readonly _account: PrivateKeyAccount;
 
@@ -46,6 +55,7 @@ export class Wallet {
     this._privateKey = normalizeKey(options.privateKey);
     this._apiUrl = options.apiUrl;
     this._chain = options.chain;
+    this._chainId = options.chainId ?? CHAIN_IDS[options.chain] ?? (parseInt(options.chain, 10) || 8453);
     this._routerAddress = options.routerAddress as Address;
     this._account = privateKeyToAccount(this._privateKey);
     this.address = this._account.address;
@@ -53,7 +63,7 @@ export class Wallet {
 
   private get _authConfig(): AuthConfig {
     return {
-      chainId: parseInt(this._chain, 10) || 8453,
+      chainId: this._chainId,
       routerAddress: this._routerAddress,
     };
   }
@@ -279,7 +289,7 @@ export class Wallet {
       domain: {
         name: "pay",
         version: "0.1",
-        chainId: parseInt(this._chain, 10) || 8453,
+        chainId: this._chainId,
         verifyingContract: contractAddr as Address,
       },
       types: {
