@@ -101,9 +101,9 @@ class TestGetStatus:
             url=f"{DEFAULT_API_URL}/status",
             method="GET",
             json={
-                "address": VALID_ADDR,
-                "balance": 142_500_000,
-                "open_tabs": [],
+                "wallet": VALID_ADDR,
+                "balance_usdc": "142500000",
+                "open_tabs": 0,
             },
         )
         status = client.get_status()
@@ -211,18 +211,18 @@ class TestX402Request:
 class TestFunding:
     def test_fund_link(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
         httpx_mock.add_response(
-            url=f"{DEFAULT_API_URL}/fund-link?amount=10000000",
-            method="GET",
-            json={"url": "https://pay.coinbase.com/onramp?amount=10"},
+            url=f"{DEFAULT_API_URL}/links/fund",
+            method="POST",
+            json={"url": "https://pay-skill.com/fund?token=abc"},
         )
-        link = client.create_fund_link(amount=10_000_000)
-        assert "coinbase" in link
+        link = client.create_fund_link()
+        assert "pay-skill" in link
 
     def test_withdraw_link(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
         httpx_mock.add_response(
-            url=f"{DEFAULT_API_URL}/withdraw-link?amount=5000000",
-            method="GET",
-            json={"url": "https://pay-skill.com/withdraw?amount=5"},
+            url=f"{DEFAULT_API_URL}/links/withdraw",
+            method="POST",
+            json={"url": "https://pay-skill.com/withdraw?token=def"},
         )
-        link = client.create_withdraw_link(amount=5_000_000)
+        link = client.create_withdraw_link()
         assert "withdraw" in link
