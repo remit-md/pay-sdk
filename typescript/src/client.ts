@@ -8,9 +8,20 @@ import type {
   Tab,
   WebhookRegistration,
 } from "./models.js";
-import { PayNetworkError, PayServerError, PayValidationError } from "./errors.js";
+import {
+  PayNetworkError,
+  PayServerError,
+  PayValidationError,
+} from "./errors.js";
 import type { Signer } from "./signer.js";
 import { createSigner } from "./signer.js";
+import {
+  buildAuthHeaders,
+  buildAuthHeadersWithSigner,
+  type AuthConfig,
+  type AuthHeaders,
+} from "./auth.js";
+import type { Hex, Address } from "viem";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const DIRECT_MIN = 1_000_000; // $1.00 USDC
@@ -20,11 +31,18 @@ export const DEFAULT_API_URL = "https://pay-skill.com/api/v1";
 
 function validateAddress(address: string, field = "address"): void {
   if (!ADDRESS_RE.test(address)) {
-    throw new PayValidationError(`Invalid Ethereum address: ${address}`, field);
+    throw new PayValidationError(
+      `Invalid Ethereum address: ${address}`,
+      field
+    );
   }
 }
 
-function validateAmount(amount: number, minimum: number, field = "amount"): void {
+function validateAmount(
+  amount: number,
+  minimum: number,
+  field = "amount"
+): void {
   if (amount < minimum) {
     const minUsd = minimum / 1_000_000;
     throw new PayValidationError(
@@ -40,20 +58,49 @@ export interface PayClientOptions {
   signerOptions?: {
     command?: string;
     key?: string;
+    address?: string;
     callback?: (hash: Uint8Array) => Uint8Array;
   };
+  /** Private key for direct auth signing (alternative to signer). */
+  privateKey?: string;
+  /** Chain ID for EIP-712 domain (default: 8453 for Base). */
+  chainId?: number;
+  /** Router contract address for EIP-712 domain. */
+  routerAddress?: string;
 }
 
 export class PayClient {
   private readonly apiUrl: string;
   private readonly signer: Signer;
+  private readonly _privateKey: Hex | null;
+  private readonly _authConfig: AuthConfig | null;
 
   constructor(options: PayClientOptions = {}) {
     this.apiUrl = (options.apiUrl ?? DEFAULT_API_URL).replace(/\/+$/, "");
     if (typeof options.signer === "object") {
       this.signer = options.signer;
     } else {
-      this.signer = createSigner(options.signer ?? "cli", options.signerOptions ?? {});
+      this.signer = createSigner(options.signer ?? "cli", {
+        ...options.signerOptions,
+        key: options.signerOptions?.key ?? options.privateKey,
+      });
+    }
+
+    // Private key for direct signing (preferred over Signer for auth)
+    this._privateKey = options.privateKey
+      ? ((options.privateKey.startsWith("0x")
+          ? options.privateKey
+          : "0x" + options.privateKey) as Hex)
+      : null;
+
+    // Auth config for EIP-712 domain
+    if (options.chainId && options.routerAddress) {
+      this._authConfig = {
+        chainId: options.chainId,
+        routerAddress: options.routerAddress as Address,
+      };
+    } else {
+      this._authConfig = null;
     }
   }
 
@@ -119,7 +166,11 @@ export class PayClient {
 
   async request(
     url: string,
-    options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}
+    options: {
+      method?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+    } = {}
   ): Promise<Response> {
     const method = options.method ?? "GET";
     const headers = options.headers ?? {};
@@ -187,13 +238,19 @@ export class PayClient {
     let tab = tabs.find((t) => t.provider === provider && t.status === "open");
 
     if (!tab) {
-      const tabAmount = Math.max(amount * PayClient.X402_TAB_MULTIPLIER, TAB_MIN);
-      tab = await this.openTab(provider, tabAmount, { maxChargePerCall: amount });
+      const tabAmount = Math.max(
+        amount * PayClient.X402_TAB_MULTIPLIER,
+        TAB_MIN
+      );
+      tab = await this.openTab(provider, tabAmount, {
+        maxChargePerCall: amount,
+      });
     }
 
-    const chargeData = await this.post<{ chargeId: string }>(`/tabs/${tab.tabId}/charge`, {
-      amount,
-    });
+    const chargeData = await this.post<{ chargeId: string }>(
+      `/tabs/${tab.tabId}/charge`,
+      { amount }
+    );
 
     return fetch(url, {
       method,
@@ -229,7 +286,7 @@ export class PayClient {
   }
 
   async deleteWebhook(webhookId: string): Promise<void> {
-    await this.delete(`/webhooks/${webhookId}`);
+    await this.del(`/webhooks/${webhookId}`);
   }
 
   // ── Funding ─────────────────────────────────────────────────────
@@ -246,14 +303,47 @@ export class PayClient {
     return data.url;
   }
 
+  // ── Auth headers ──────────────────────────────────────────────
+
+  private async authHeaders(
+    method: string,
+    path: string
+  ): Promise<AuthHeaders | null> {
+    if (!this._authConfig) return null;
+
+    if (this._privateKey) {
+      return buildAuthHeaders(
+        this._privateKey,
+        method,
+        path,
+        this._authConfig
+      );
+    }
+
+    if (this.signer.address) {
+      return buildAuthHeadersWithSigner(
+        this.signer,
+        method,
+        path,
+        this._authConfig
+      );
+    }
+
+    return null;
+  }
+
   // ── HTTP helpers ────────────────────────────────────────────────
 
   private async get<T>(path: string): Promise<T> {
     let resp: Response;
     try {
+      const auth = await this.authHeaders("GET", path);
       resp = await fetch(`${this.apiUrl}${path}`, {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...auth,
+        },
       });
     } catch (e) {
       throw new PayNetworkError(String(e));
@@ -264,9 +354,13 @@ export class PayClient {
   private async post<T>(path: string, payload: unknown): Promise<T> {
     let resp: Response;
     try {
+      const auth = await this.authHeaders("POST", path);
       resp = await fetch(`${this.apiUrl}${path}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...auth,
+        },
         body: JSON.stringify(payload),
       });
     } catch (e) {
@@ -275,12 +369,16 @@ export class PayClient {
     return this.handleResponse<T>(resp);
   }
 
-  private async delete(path: string): Promise<void> {
+  private async del(path: string): Promise<void> {
     let resp: Response;
     try {
+      const auth = await this.authHeaders("DELETE", path);
       resp = await fetch(`${this.apiUrl}${path}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...auth,
+        },
       });
     } catch (e) {
       throw new PayNetworkError(String(e));
