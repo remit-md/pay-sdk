@@ -299,9 +299,7 @@ class PayClient:
 
     def _post(self, path: str, payload: dict[str, Any]) -> Any:
         try:
-            resp = self._http.post(
-                path, json=payload, headers=self._auth_headers("POST", path)
-            )
+            resp = self._http.post(path, json=payload, headers=self._auth_headers("POST", path))
         except httpx.HTTPError as e:
             raise PayNetworkError(str(e)) from e
         return self._handle_response(resp)

@@ -59,9 +59,7 @@ class TestRawKeySignerRoundTrip:
 
 class TestBuildAuthHeaders:
     def test_produces_valid_headers(self) -> None:
-        headers = build_auth_headers(
-            ANVIL_PK, "POST", "/api/v1/direct", TEST_CHAIN_ID, TEST_ROUTER
-        )
+        headers = build_auth_headers(ANVIL_PK, "POST", "/api/v1/direct", TEST_CHAIN_ID, TEST_ROUTER)
 
         assert headers["X-Pay-Agent"].lower() == ANVIL_ADDRESS.lower()
         assert headers["X-Pay-Signature"].startswith("0x") or len(headers["X-Pay-Signature"]) > 0
@@ -71,9 +69,7 @@ class TestBuildAuthHeaders:
 
     def test_signature_recovers_to_correct_address(self) -> None:
         """Full round-trip: build auth headers, recompute hash, recover signer."""
-        headers = build_auth_headers(
-            ANVIL_PK, "POST", "/api/v1/direct", TEST_CHAIN_ID, TEST_ROUTER
-        )
+        headers = build_auth_headers(ANVIL_PK, "POST", "/api/v1/direct", TEST_CHAIN_ID, TEST_ROUTER)
 
         # Recompute the EIP-712 hash from the headers
         domain_data = {
