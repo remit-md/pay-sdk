@@ -100,8 +100,8 @@ export class Wallet {
   async balance(): Promise<number> {
     const resp = await this._authFetch("/status");
     if (!resp.ok) throw new Error(`balance fetch failed: ${resp.status}`);
-    const data = (await resp.json()) as { balance?: string };
-    return data.balance ? parseFloat(data.balance) : 0;
+    const data = (await resp.json()) as { balance_usdc?: string };
+    return data.balance_usdc ? parseFloat(data.balance_usdc) : 0;
   }
 
   /** Sign an EIP-2612 permit for the given flow type and amount. */

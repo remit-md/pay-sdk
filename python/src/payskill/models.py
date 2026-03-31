@@ -37,9 +37,22 @@ class Tab(BaseModel):
 class StatusResponse(BaseModel):
     """Wallet status."""
 
-    address: str
-    balance: int = Field(description="USDC balance in micro-units")
-    open_tabs: list[Tab] = Field(default_factory=list)
+    wallet: str
+    balance_usdc: str | None = Field(default=None, description="USDC balance as decimal string")
+    open_tabs: int = Field(default=0)
+    total_locked: int = Field(default=0)
+
+    @property
+    def address(self) -> str:
+        """Alias for wallet (backwards compat)."""
+        return self.wallet
+
+    @property
+    def balance(self) -> int:
+        """Balance in micro-units (backwards compat)."""
+        if self.balance_usdc is None:
+            return 0
+        return int(float(self.balance_usdc) * 1_000_000)
 
 
 class WebhookRegistration(BaseModel):
