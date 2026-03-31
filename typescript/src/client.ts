@@ -325,20 +325,28 @@ export class PayClient {
 
   // ── Funding ─────────────────────────────────────────────────────
 
-  /** Construct a fund URL pointing to the dashboard. */
-  createFundLink(amount?: number): string {
-    const wallet = this.signer.address ?? "";
-    const params = new URLSearchParams({ wallet });
-    if (amount) params.set("amount", String(amount));
-    return `${this.apiUrl.replace(/\/api\/v1$/, "")}/fund?${params}`;
+  /** Create a one-time fund link via the server. Returns the dashboard URL. */
+  async createFundLink(options?: {
+    messages?: unknown[];
+    agentName?: string;
+  }): Promise<string> {
+    const data = await this.post<{ url: string }>("/links/fund", {
+      messages: options?.messages ?? [],
+      agent_name: options?.agentName,
+    });
+    return data.url;
   }
 
-  /** Construct a withdraw URL pointing to the dashboard. */
-  createWithdrawLink(amount?: number): string {
-    const wallet = this.signer.address ?? "";
-    const params = new URLSearchParams({ wallet });
-    if (amount) params.set("amount", String(amount));
-    return `${this.apiUrl.replace(/\/api\/v1$/, "")}/withdraw?${params}`;
+  /** Create a one-time withdraw link via the server. Returns the dashboard URL. */
+  async createWithdrawLink(options?: {
+    messages?: unknown[];
+    agentName?: string;
+  }): Promise<string> {
+    const data = await this.post<{ url: string }>("/links/withdraw", {
+      messages: options?.messages ?? [],
+      agent_name: options?.agentName,
+    });
+    return data.url;
   }
 
   // ── Permit signing ────────────────────────────────────────────

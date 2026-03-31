@@ -271,23 +271,19 @@ class PayClient:
 
     # ── Funding ─────────────────────────────────────────────────────
 
-    def create_fund_link(self, amount: int | None = None) -> str:
-        """Construct a fund URL pointing to the dashboard."""
-        base = self._api_url.replace("/api/v1", "")
-        wallet = self._signer.address if hasattr(self._signer, "address") else ""
-        url = f"{base}/fund?wallet={wallet}"
-        if amount:
-            url += f"&amount={amount}"
-        return url
+    def create_fund_link(
+        self, messages: list[Any] | None = None, agent_name: str | None = None
+    ) -> str:
+        """Create a one-time fund link via the server. Returns the dashboard URL."""
+        data = self._post("/links/fund", {"messages": messages or [], "agent_name": agent_name})
+        return data["url"]
 
-    def create_withdraw_link(self, amount: int | None = None) -> str:
-        """Construct a withdraw URL pointing to the dashboard."""
-        base = self._api_url.replace("/api/v1", "")
-        wallet = self._signer.address if hasattr(self._signer, "address") else ""
-        url = f"{base}/withdraw?wallet={wallet}"
-        if amount:
-            url += f"&amount={amount}"
-        return url
+    def create_withdraw_link(
+        self, messages: list[Any] | None = None, agent_name: str | None = None
+    ) -> str:
+        """Create a one-time withdraw link via the server. Returns the dashboard URL."""
+        data = self._post("/links/withdraw", {"messages": messages or [], "agent_name": agent_name})
+        return data["url"]
 
     # ── Auth headers ────────────────────────────────────────────────
 

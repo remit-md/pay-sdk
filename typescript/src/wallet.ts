@@ -20,8 +20,8 @@ export interface WalletOptions {
 }
 
 export interface FundLinkOptions {
-  /** Dashboard base URL. If omitted, derived from apiUrl. */
-  dashboardUrl?: string;
+  messages?: unknown[];
+  agentName?: string;
 }
 
 export interface PermitResult {
@@ -144,10 +144,38 @@ export class Wallet {
     return (await resp.json()) as { tx_hash: string; status: string };
   }
 
-  /** Construct a fund URL pointing to the dashboard /fund page. */
-  createFundLink(options?: FundLinkOptions): string {
-    const base = options?.dashboardUrl ?? this._apiUrl.replace(/\/api\/v1$/, "");
-    return `${base}/fund?wallet=${encodeURIComponent(this.address)}`;
+  /** Create a one-time fund link via the server. Returns the dashboard URL. */
+  async createFundLink(options?: FundLinkOptions): Promise<string> {
+    const resp = await this._authFetch("/links/fund", {
+      method: "POST",
+      body: JSON.stringify({
+        messages: options?.messages ?? [],
+        agent_name: options?.agentName,
+      }),
+    });
+    if (!resp.ok) {
+      const err = (await resp.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `createFundLink failed: ${resp.status}`);
+    }
+    const data = (await resp.json()) as { url: string };
+    return data.url;
+  }
+
+  /** Create a one-time withdraw link via the server. Returns the dashboard URL. */
+  async createWithdrawLink(options?: FundLinkOptions): Promise<string> {
+    const resp = await this._authFetch("/links/withdraw", {
+      method: "POST",
+      body: JSON.stringify({
+        messages: options?.messages ?? [],
+        agent_name: options?.agentName,
+      }),
+    });
+    if (!resp.ok) {
+      const err = (await resp.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `createWithdrawLink failed: ${resp.status}`);
+    }
+    const data = (await resp.json()) as { url: string };
+    return data.url;
   }
 
   /** Register a webhook for this wallet. */
