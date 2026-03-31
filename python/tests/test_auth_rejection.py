@@ -134,6 +134,7 @@ class TestAuthRejection:
 
     def test_all_api_endpoints_get_auth_headers(self, httpx_mock: HTTPXMock) -> None:
         """Verify auth headers are sent on POST endpoints too, not just GET."""
+
         def check_and_respond(request: httpx.Request) -> httpx.Response:
             assert "x-pay-agent" in request.headers, (
                 f"Missing X-Pay-Agent on {request.method} {request.url}"
