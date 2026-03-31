@@ -20,13 +20,8 @@ export interface WalletOptions {
 }
 
 export interface FundLinkOptions {
-  agentName?: string;
-  messages?: Array<{ role: string; text: string }>;
-}
-
-export interface FundLink {
-  url: string;
-  token: string;
+  /** Dashboard base URL. If omitted, derived from apiUrl. */
+  dashboardUrl?: string;
 }
 
 export interface PermitResult {
@@ -111,9 +106,13 @@ export class Wallet {
 
   /** Sign an EIP-2612 permit for the given flow type and amount. */
   async signPermit(flow: string, amount: number): Promise<PermitResult> {
-    const resp = await this._authFetch("/permits/prepare", {
-      method: "POST",
-      body: JSON.stringify({ flow, amount, signer: this.address }),
+    const params = new URLSearchParams({
+      flow,
+      amount: String(amount),
+      signer: this.address,
+    });
+    const resp = await this._authFetch(`/permit/prepare?${params}`, {
+      method: "GET",
     });
     if (!resp.ok) throw new Error(`permit prepare failed: ${resp.status}`);
     const data = (await resp.json()) as { hash: string; deadline: number };
@@ -145,19 +144,10 @@ export class Wallet {
     return (await resp.json()) as { tx_hash: string; status: string };
   }
 
-  /** Create a one-time fund link (opens the dashboard). */
-  async createFundLink(options?: FundLinkOptions): Promise<FundLink> {
-    const resp = await this._authFetch("/links", {
-      method: "POST",
-      body: JSON.stringify({
-        type: "fund",
-        wallet_address: this.address,
-        agent_name: options?.agentName,
-        messages: options?.messages,
-      }),
-    });
-    if (!resp.ok) throw new Error(`createFundLink failed: ${resp.status}`);
-    return (await resp.json()) as FundLink;
+  /** Construct a fund URL pointing to the dashboard /fund page. */
+  createFundLink(options?: FundLinkOptions): string {
+    const base = options?.dashboardUrl ?? this._apiUrl.replace(/\/api\/v1$/, "");
+    return `${base}/fund?wallet=${encodeURIComponent(this.address)}`;
   }
 
   /** Register a webhook for this wallet. */

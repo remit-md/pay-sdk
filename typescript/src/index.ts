@@ -29,7 +29,6 @@ export { Wallet, PrivateKeySigner } from "./wallet.js";
 export type {
   WalletOptions,
   FundLinkOptions,
-  FundLink,
   PermitResult,
 } from "./wallet.js";
 

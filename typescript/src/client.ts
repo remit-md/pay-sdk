@@ -325,16 +325,20 @@ export class PayClient {
 
   // ── Funding ─────────────────────────────────────────────────────
 
-  async createFundLink(amount?: number): Promise<string> {
-    const params = amount ? `?amount=${amount}` : "";
-    const data = await this.get<{ url: string }>(`/fund-link${params}`);
-    return data.url;
+  /** Construct a fund URL pointing to the dashboard. */
+  createFundLink(amount?: number): string {
+    const wallet = this.signer.address ?? "";
+    const params = new URLSearchParams({ wallet });
+    if (amount) params.set("amount", String(amount));
+    return `${this.apiUrl.replace(/\/api\/v1$/, "")}/fund?${params}`;
   }
 
-  async createWithdrawLink(amount?: number): Promise<string> {
-    const params = amount ? `?amount=${amount}` : "";
-    const data = await this.get<{ url: string }>(`/withdraw-link${params}`);
-    return data.url;
+  /** Construct a withdraw URL pointing to the dashboard. */
+  createWithdrawLink(amount?: number): string {
+    const wallet = this.signer.address ?? "";
+    const params = new URLSearchParams({ wallet });
+    if (amount) params.set("amount", String(amount));
+    return `${this.apiUrl.replace(/\/api\/v1$/, "")}/withdraw?${params}`;
   }
 
   // ── Permit signing ────────────────────────────────────────────
