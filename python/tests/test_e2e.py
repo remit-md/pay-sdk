@@ -23,6 +23,10 @@ from payskill.signer import CallbackSigner
 TESTNET_URL = os.environ.get("PAYSKILL_TESTNET_URL", "https://testnet.pay-skill.com/api/v1")
 TESTNET_KEY = os.environ.get("PAYSKILL_TESTNET_KEY", "")
 
+# Testnet contract addresses (Base Sepolia)
+CHAIN_ID = 84532
+ROUTER_ADDRESS = "0x3A6d9C4d5f0ef2E2f282A6BB0BDf6d4707ea3B95"
+
 # Second wallet for provider-side operations
 PROVIDER_ADDR = os.environ.get("PAYSKILL_TESTNET_PROVIDER", "0x" + "b2" * 20)
 
@@ -55,8 +59,12 @@ def _make_signer() -> CallbackSigner:
 
 @pytest.fixture(scope="module")
 def client() -> Generator[PayClient, None, None]:
-    signer = _make_signer()
-    c = PayClient(api_url=TESTNET_URL, signer=signer)
+    c = PayClient(
+        api_url=TESTNET_URL,
+        private_key=TESTNET_KEY,
+        chain_id=CHAIN_ID,
+        router_address=ROUTER_ADDRESS,
+    )
     yield c
     c.close()
 
