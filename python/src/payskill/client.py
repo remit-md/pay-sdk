@@ -276,14 +276,14 @@ class PayClient:
     ) -> str:
         """Create a one-time fund link via the server. Returns the dashboard URL."""
         data = self._post("/links/fund", {"messages": messages or [], "agent_name": agent_name})
-        return data["url"]
+        return str(data["url"])
 
     def create_withdraw_link(
         self, messages: list[Any] | None = None, agent_name: str | None = None
     ) -> str:
         """Create a one-time withdraw link via the server. Returns the dashboard URL."""
         data = self._post("/links/withdraw", {"messages": messages or [], "agent_name": agent_name})
-        return data["url"]
+        return str(data["url"])
 
     # ── Auth headers ────────────────────────────────────────────────
 
