@@ -25,10 +25,11 @@ export interface FundLinkOptions {
 }
 
 export interface PermitResult {
+  nonce: string;
+  deadline: number;
   v: number;
   r: string;
   s: string;
-  deadline: number;
 }
 
 /** Map well-known chain names to numeric IDs. */
@@ -107,37 +108,55 @@ export class Wallet {
     return raw / 1_000_000;
   }
 
-  /** Sign an EIP-2612 permit for the given flow type and amount. */
+  /**
+   * Sign an EIP-2612 permit for a given spender and amount.
+   * @param flow — "direct" or "tab" (used to look up the spender contract address)
+   * @param amount — micro-USDC amount
+   */
   async signPermit(flow: string, amount: number): Promise<PermitResult> {
+    // Look up contract address for the flow type
+    const contracts = await this.getContracts();
+    const spender = flow === "tab" ? contracts.tab : contracts.direct;
+
     const params = new URLSearchParams({
-      flow,
       amount: String(amount),
-      signer: this.address,
+      spender,
     });
     const resp = await this._authFetch(`/permit/prepare?${params}`, {
       method: "GET",
     });
     if (!resp.ok) throw new Error(`permit prepare failed: ${resp.status}`);
-    const data = (await resp.json()) as { hash: string; deadline: number };
+    const data = (await resp.json()) as {
+      hash: string;
+      nonce: string;
+      deadline: number;
+    };
     const sig = await this._signHash(data.hash);
-    return { ...sig, deadline: data.deadline };
+    return { nonce: data.nonce, deadline: data.deadline, ...sig };
   }
 
-  /** Send a direct payment. */
+  /** Send a direct payment. Auto-signs permit if not provided. */
   async payDirect(
     to: string,
     amount: number,
     memo: string,
     options?: { permit?: PermitResult }
   ): Promise<{ tx_hash: string; status: string }> {
+    const microAmount = Math.round(amount * 1_000_000);
+
+    // Auto-sign permit if not provided
+    let permit = options?.permit;
+    if (!permit) {
+      permit = await this.signPermit("direct", microAmount);
+    }
+
     const resp = await this._authFetch("/direct", {
       method: "POST",
       body: JSON.stringify({
-        from: this.address,
         to,
-        amount: Math.round(amount * 1_000_000),
+        amount: microAmount,
         memo,
-        permit: options?.permit,
+        permit,
       }),
     });
     if (!resp.ok) {
@@ -226,12 +245,18 @@ export class Wallet {
       permit = providerOrOpts.permit;
     }
 
+    const microAmount = Math.round(amt * 1_000_000);
+
+    // Auto-sign permit if not provided
+    if (!permit) {
+      permit = await this.signPermit("tab", microAmount);
+    }
+
     const resp = await this._authFetch("/tabs", {
       method: "POST",
       body: JSON.stringify({
-        from: this.address,
         provider,
-        amount: Math.round(amt * 1_000_000),
+        amount: microAmount,
         max_charge_per_call: Math.round(maxCharge * 1_000_000),
         permit,
       }),
