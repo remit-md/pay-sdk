@@ -78,8 +78,9 @@ export class Wallet {
     init: RequestInit = {}
   ): Promise<Response> {
     const method = (init.method ?? "GET").toUpperCase();
-    // Sign the full URL path the server sees (basePath + relative path).
-    const signPath = this._basePath + path;
+    // Sign only the path portion (no query string) — server verifies against uri.path().
+    const pathOnly = path.split("?")[0];
+    const signPath = this._basePath + pathOnly;
     const authHeaders = await buildAuthHeaders(
       this._privateKey,
       method,
@@ -110,29 +111,80 @@ export class Wallet {
 
   /**
    * Sign an EIP-2612 permit for a given spender and amount.
+   * Signs client-side: reads USDC nonce via RPC, computes EIP-712 hash, signs locally.
    * @param flow — "direct" or "tab" (used to look up the spender contract address)
    * @param amount — micro-USDC amount
    */
   async signPermit(flow: string, amount: number): Promise<PermitResult> {
-    // Look up contract address for the flow type
     const contracts = await this.getContracts();
     const spender = flow === "tab" ? contracts.tab : contracts.direct;
+    const usdcAddress = contracts.usdc;
 
-    const params = new URLSearchParams({
-      amount: String(amount),
-      spender,
+    // Read USDC permit nonce via RPC (nonces(address) selector = 0x7ecebe00)
+    const nonce = await this._readUsdcNonce(usdcAddress);
+    const deadline = Math.floor(Date.now() / 1000) + 1800; // 30 min
+
+    // Sign EIP-712 typed data for USDC permit
+    const signature = await this._account.signTypedData({
+      domain: {
+        name: "USD Coin",
+        version: "2",
+        chainId: this._chainId,
+        verifyingContract: usdcAddress as Address,
+      },
+      types: {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      },
+      primaryType: "Permit",
+      message: {
+        owner: this.address as Address,
+        spender: spender as Address,
+        value: BigInt(amount),
+        nonce: BigInt(nonce),
+        deadline: BigInt(deadline),
+      },
     });
-    const resp = await this._authFetch(`/permit/prepare?${params}`, {
-      method: "GET",
+
+    // Parse 65-byte signature into v, r, s
+    const sigClean = signature.startsWith("0x") ? signature.slice(2) : signature;
+    const r = "0x" + sigClean.slice(0, 64);
+    const s = "0x" + sigClean.slice(64, 128);
+    const v = parseInt(sigClean.slice(128, 130), 16);
+
+    return { nonce: String(nonce), deadline, v, r, s };
+  }
+
+  /** Read USDC permit nonce for this wallet via RPC eth_call. */
+  private async _readUsdcNonce(usdcAddress: string): Promise<number> {
+    // Derive RPC URL from API URL (same host, different path is not possible,
+    // so we use the /contracts endpoint to discover the chain and then eth_call via public RPC)
+    const paddedAddr = this.address.toLowerCase().replace("0x", "").padStart(64, "0");
+    const data = `0x7ecebe00${paddedAddr}`;
+
+    // Use a public RPC for the chain
+    const rpcUrl = this._chainId === 84532
+      ? "https://sepolia.base.org"
+      : "https://mainnet.base.org";
+
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_call",
+        params: [{ to: usdcAddress, data }, "latest"],
+      }),
     });
-    if (!resp.ok) throw new Error(`permit prepare failed: ${resp.status}`);
-    const data = (await resp.json()) as {
-      hash: string;
-      nonce: string;
-      deadline: number;
-    };
-    const sig = await this._signHash(data.hash);
-    return { nonce: data.nonce, deadline: data.deadline, ...sig };
+    const json = (await res.json()) as { result?: string; error?: { message: string } };
+    if (json.error) throw new Error(`RPC nonce fetch error: ${json.error.message}`);
+    return parseInt(json.result ?? "0x0", 16);
   }
 
   /** Send a direct payment. Auto-signs permit if not provided. */
