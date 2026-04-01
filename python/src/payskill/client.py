@@ -63,6 +63,7 @@ class PayClient:
         self._chain_id = chain_id
         self._router_address = router_address
         self._http = httpx.Client(base_url=self._api_url, timeout=30.0)
+        self._contracts: dict[str, str] | None = None
         # Extract URL path prefix for auth signing (e.g., "/api/v1" from
         # "http://host:3001/api/v1"). The server verifies the full path.
         from urllib.parse import urlparse
@@ -79,6 +80,48 @@ class PayClient:
     def __exit__(self, *args: object) -> None:
         self.close()
 
+    # ── Permit Signing ─────────────────────────────────────────────
+
+    def _get_contracts(self) -> dict[str, str]:
+        """Fetch and cache contract addresses from the server."""
+        if self._contracts is None:
+            self._contracts = self._get_no_auth("/contracts")
+        return self._contracts
+
+    def _prepare_and_sign_permit(
+        self, amount: int, spender: str
+    ) -> dict[str, Any]:
+        """Prepare and sign a USDC EIP-2612 permit.
+
+        1. Calls GET /permit/prepare to get the EIP-712 hash
+        2. Signs the hash with the agent's private key
+        3. Returns {nonce, deadline, v, r, s} for inclusion in payment body
+        """
+        if not self._private_key:
+            raise PayValidationError(
+                "private_key required for permit signing", field="private_key"
+            )
+
+        prepare = self._get_no_auth(f"/permit/prepare?amount={amount}&spender={spender}")
+        hash_hex: str = prepare["hash"]
+
+        # Sign the 32-byte hash
+        hash_bytes = bytes.fromhex(hash_hex.removeprefix("0x"))
+        sig_bytes = self._signer.sign(hash_bytes)
+
+        # Parse 65-byte signature: r (32) || s (32) || v (1)
+        r = "0x" + sig_bytes[:32].hex()
+        s = "0x" + sig_bytes[32:64].hex()
+        v = sig_bytes[64]
+
+        return {
+            "nonce": prepare["nonce"],
+            "deadline": prepare["deadline"],
+            "v": v,
+            "r": r,
+            "s": s,
+        }
+
     # ── Direct Payment ──────────────────────────────────────────────
 
     def pay_direct(self, to: str, amount: int, memo: str = "") -> DirectPaymentResult:
@@ -91,7 +134,9 @@ class PayClient:
         """
         _validate_address(to, field="to")
         _validate_amount(amount, _DIRECT_MIN)
-        data = self._post("/direct", {"to": to, "amount": amount, "memo": memo})
+        contracts = self._get_contracts()
+        permit = self._prepare_and_sign_permit(amount, contracts["direct"])
+        data = self._post("/direct", {"to": to, "amount": amount, "memo": memo, "permit": permit})
         return DirectPaymentResult.model_validate(data)
 
     # ── Tab Management ──────────────────────────────────────────────
@@ -110,15 +155,23 @@ class PayClient:
             raise PayValidationError(
                 "max_charge_per_call must be positive", field="max_charge_per_call"
             )
+        contracts = self._get_contracts()
+        permit = self._prepare_and_sign_permit(amount, contracts["tab"])
         data = self._post(
             "/tabs",
             {
                 "provider": provider,
                 "amount": amount,
                 "max_charge_per_call": max_charge_per_call,
+                "permit": permit,
             },
         )
         return Tab.model_validate(data)
+
+    def charge_tab(self, tab_id: str, amount: int) -> dict[str, Any]:
+        """Charge an open tab (provider-side)."""
+        data = self._post(f"/tabs/{tab_id}/charge", {"amount": amount})
+        return data
 
     def close_tab(self, tab_id: str) -> Tab:
         """Close a tab and distribute funds."""
@@ -128,7 +181,9 @@ class PayClient:
     def top_up_tab(self, tab_id: str, amount: int) -> Tab:
         """Add funds to an open tab."""
         _validate_amount(amount, 1, field="amount")
-        data = self._post(f"/tabs/{tab_id}/topup", {"amount": amount})
+        contracts = self._get_contracts()
+        permit = self._prepare_and_sign_permit(amount, contracts["tab"])
+        data = self._post(f"/tabs/{tab_id}/topup", {"amount": amount, "permit": permit})
         return Tab.model_validate(data)
 
     def list_tabs(self) -> list[Tab]:
@@ -300,6 +355,14 @@ class PayClient:
         return {}
 
     # ── HTTP helpers ────────────────────────────────────────────────
+
+    def _get_no_auth(self, path: str) -> Any:
+        """GET without auth headers (for public endpoints like /contracts, /permit/prepare)."""
+        try:
+            resp = self._http.get(path)
+        except httpx.HTTPError as e:
+            raise PayNetworkError(str(e)) from e
+        return self._handle_response(resp)
 
     def _get(self, path: str, params: dict[str, str] | None = None) -> Any:
         try:
