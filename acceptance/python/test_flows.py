@@ -199,6 +199,68 @@ class TestFundWithdrawLinks:
         assert isinstance(url, str) and len(url) > 0
 
 
+class TestX402Request:
+    """x402 request() with auto-payment."""
+
+    def setup_method(self):
+        self.contracts = get_contracts()
+        self.agent_key, self.agent_addr = generate_wallet()
+        self.provider_key, self.provider_addr = generate_wallet()
+        mint(self.agent_addr, 200_000_000)
+        wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
+
+    def test_request_handles_402_direct(self):
+        """SDK request() sees 402, pays via payDirect, retries with headers."""
+        import threading
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+
+        provider_addr = self.provider_addr
+
+        class X402Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                tx = self.headers.get("X-Payment-Tx", "")
+                if tx:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"content":"paid"}')
+                else:
+                    self.send_response(402)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    import json
+                    body = json.dumps({
+                        "scheme": "exact",
+                        "amount": 1_000_000,
+                        "to": provider_addr,
+                        "settlement": "direct",
+                    })
+                    self.wfile.write(body.encode())
+
+            def log_message(self, format, *args):
+                pass  # suppress logs
+
+        server = HTTPServer(("127.0.0.1", 0), X402Handler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            client = PayClient(
+                api_url=API_URL,
+                signer="raw",
+                private_key=self.agent_key,
+                chain_id=84532,
+                router_address=self.contracts["router"],
+            )
+            resp = client.request(f"http://127.0.0.1:{port}/content")
+            assert resp.status_code == 200, f"expected 200, got {resp.status_code}"
+            data = resp.json()
+            assert data["content"] == "paid"
+        finally:
+            server.shutdown()
+
+
 class TestErrorPaths:
     """Client-side validation errors."""
 
