@@ -249,6 +249,48 @@ describe("SDK Acceptance — TypeScript", () => {
     });
   });
 
+  describe("x402 Request (direct settlement)", () => {
+    it("handles 402 and pays automatically via payDirect", async () => {
+      // Inline mini x402 server
+      const { createServer } = await import("node:http");
+      const server = createServer((req, res) => {
+        const tx = req.headers["x-payment-tx"];
+        if (tx && typeof tx === "string" && tx.length > 0) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ content: "paid", tx }));
+        } else {
+          res.writeHead(402, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              scheme: "exact",
+              amount: 1_000_000,
+              to: providerWallet.address,
+              settlement: "direct",
+            }),
+          );
+        }
+      });
+      await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const client = new PayClient({
+          apiUrl: API_URL,
+          privateKey: agentKey,
+          chainId: CHAIN_ID,
+          routerAddress: contracts.router,
+        });
+
+        const resp = await client.request(`http://127.0.0.1:${port}/content`);
+        assert.equal(resp.status, 200, "should get 200 after payment");
+        const body = (await resp.json()) as { content: string };
+        assert.equal(body.content, "paid");
+      } finally {
+        server.close();
+      }
+    });
+  });
+
   describe("Error Paths", () => {
     it("payDirect rejects bad address (client-side)", async () => {
       await assert.rejects(
