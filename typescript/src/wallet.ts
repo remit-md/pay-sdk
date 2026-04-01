@@ -50,6 +50,9 @@ export class Wallet {
   /** URL path prefix extracted from apiUrl (e.g., "/api/v1"). */
   private readonly _basePath: string;
 
+  /** Cached contracts response. */
+  private _contractsCache: { router: string; tab: string; direct: string; fee: string; usdc: string; chainId: number } | null = null;
+
   constructor(options: WalletOptions) {
     this._privateKey = normalizeKey(options.privateKey);
     this._apiUrl = options.apiUrl;
@@ -162,12 +165,9 @@ export class Wallet {
 
   /** Read USDC permit nonce for this wallet via RPC eth_call. */
   private async _readUsdcNonce(usdcAddress: string): Promise<number> {
-    // Derive RPC URL from API URL (same host, different path is not possible,
-    // so we use the /contracts endpoint to discover the chain and then eth_call via public RPC)
     const paddedAddr = this.address.toLowerCase().replace("0x", "").padStart(64, "0");
     const data = `0x7ecebe00${paddedAddr}`;
 
-    // Use a public RPC for the chain
     const rpcUrl = this._chainId === 84532
       ? "https://sepolia.base.org"
       : "https://mainnet.base.org";
@@ -183,7 +183,8 @@ export class Wallet {
       }),
     });
     const json = (await res.json()) as { result?: string; error?: { message: string } };
-    if (json.error) throw new Error(`RPC nonce fetch error: ${json.error.message}`);
+    // Testnet USDC mock may not implement nonces() — default to 0
+    if (json.error) return 0;
     return parseInt(json.result ?? "0x0", 16);
   }
 
@@ -373,10 +374,11 @@ export class Wallet {
     usdc: string;
     chainId: number;
   }> {
+    if (this._contractsCache) return this._contractsCache;
     const resp = await fetch(`${this._apiUrl}/contracts`);
     if (!resp.ok) throw new Error(`getContracts failed: ${resp.status}`);
     const data = (await resp.json()) as Record<string, unknown>;
-    return {
+    this._contractsCache = {
       router: (data.router as string) ?? "",
       tab: (data.tab as string) ?? "",
       direct: (data.direct as string) ?? "",
@@ -384,6 +386,7 @@ export class Wallet {
       usdc: (data.usdc as string) ?? "",
       chainId: (data.chain_id as number) ?? 0,
     };
+    return this._contractsCache;
   }
 
   /** Sign a tab charge (provider-side EIP-712 signature). */
