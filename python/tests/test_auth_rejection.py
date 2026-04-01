@@ -156,7 +156,12 @@ class TestAuthRejection:
         httpx_mock.add_response(
             url=f"{DEFAULT_API_URL}/contracts",
             method="GET",
-            json={"router": "0x" + "00" * 20, "tab": "0x" + "00" * 20, "direct": "0x" + "d1" * 20, "usdc": "0x" + "00" * 20},
+            json={
+                "router": "0x" + "00" * 20,
+                "tab": "0x" + "00" * 20,
+                "direct": "0x" + "d1" * 20,
+                "usdc": "0x" + "00" * 20,
+            },
         )
         httpx_mock.add_response(
             url=f"{DEFAULT_API_URL}/permit/prepare",
