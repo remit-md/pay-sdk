@@ -152,6 +152,22 @@ class TestAuthRejection:
                 },
             )
 
+        # Mock the permit flow (contracts + permit/prepare)
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/contracts",
+            method="GET",
+            json={
+                "router": "0x" + "00" * 20,
+                "tab": "0x" + "00" * 20,
+                "direct": "0x" + "d1" * 20,
+                "usdc": "0x" + "00" * 20,
+            },
+        )
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/permit/prepare",
+            method="POST",
+            json={"hash": "0x" + "ab" * 32, "nonce": "0", "deadline": 9999999999},
+        )
         httpx_mock.add_callback(check_and_respond, url=f"{DEFAULT_API_URL}/direct")
 
         client = PayClient(
