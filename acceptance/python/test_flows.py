@@ -14,6 +14,8 @@ Run:
 import sys
 import os
 
+import pytest
+
 # Add SDK source to path for direct import
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "python", "src"))
 
@@ -101,6 +103,12 @@ class TestTabLifecycle:
 
         import time
         time.sleep(5)  # wait for on-chain
+
+        # Charge (provider side)
+        charge = provider_client.charge_tab(tab.tab_id, 1_000_000)  # $1
+        assert charge.get("status") in ("approved", "confirmed"), (
+            f"charge should be approved, got {charge.get('status')}"
+        )
 
         # List tabs
         tabs = agent_client.list_tabs()
@@ -276,11 +284,8 @@ class TestErrorPaths:
             chain_id=84532,
             router_address=self.contracts["router"],
         )
-        try:
+        with pytest.raises((PayValidationError, ValueError)):
             client.pay_direct("not-an-address", 5_000_000)
-            assert False, "should have raised"
-        except (PayValidationError, ValueError, Exception):
-            pass  # Expected
 
     def test_below_minimum_raises_error(self):
         client = PayClient(
@@ -290,11 +295,8 @@ class TestErrorPaths:
             chain_id=84532,
             router_address=self.contracts["router"],
         )
-        try:
+        with pytest.raises((PayValidationError, ValueError)):
             client.pay_direct(
                 "0x" + "a1" * 20,
                 500_000,  # $0.50 — below $1 min
             )
-            assert False, "should have raised"
-        except (PayValidationError, ValueError, Exception):
-            pass  # Expected
