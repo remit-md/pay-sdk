@@ -97,17 +97,18 @@ class TestTabLifecycle:
 
         # Open tab
         tab = agent_client.open_tab(self.provider_addr, 20_000_000, 2_000_000)
-        assert tab.tab_id, "should return tab_id"
+        assert tab.tab_id or tab.id, "should return tab_id or id"
 
         import time
         time.sleep(5)  # wait for on-chain
 
         # List tabs
         tabs = agent_client.list_tabs()
-        assert any(t.tab_id == tab.tab_id for t in tabs), "tab should appear in list"
+        tab_id = tab.tab_id or tab.id
+        assert any((t.tab_id or t.id) == tab_id for t in tabs), "tab should appear in list"
 
         # Close
-        closed = agent_client.close_tab(tab.tab_id)
+        closed = agent_client.close_tab(tab_id)
         assert closed, "close should succeed"
 
 

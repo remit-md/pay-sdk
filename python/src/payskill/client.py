@@ -267,7 +267,7 @@ class PayClient:
         """Settle via tab: find/open tab, charge, retry."""
         # Look for existing open tab with this provider
         tabs = self.list_tabs()
-        tab = next((t for t in tabs if t.provider == provider and t.status.value == "open"), None)
+        tab = next((t for t in tabs if t.provider == provider and t.status == "open"), None)
 
         if tab is None:
             # Auto-open tab: 10x per-call price, minimum $5

@@ -98,7 +98,7 @@ class TestOpenTab:
         )
         tab = client.open_tab(PROVIDER_ADDR, 20_000_000, max_charge_per_call=500_000)
         assert tab.tab_id == "tab_123"
-        assert tab.status.value == "open"
+        assert tab.status == "open"
 
     def test_below_minimum(self, client: PayClient) -> None:
         with pytest.raises(PayValidationError, match="below minimum"):
