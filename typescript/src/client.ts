@@ -297,7 +297,8 @@ export class PayClient {
     return {
       address: raw.wallet,
       balance: raw.balance_usdc ? Number(raw.balance_usdc) : 0,
-      openTabs: [],
+      openTabCount: raw.open_tabs ?? 0,
+      totalLocked: raw.total_locked ?? 0,
     };
   }
 
@@ -487,12 +488,13 @@ export class PayClient {
 
   private async handleResponse<T>(resp: Response): Promise<T> {
     if (resp.status >= 400) {
+      const text = await resp.text();
       let msg: string;
       try {
-        const body = (await resp.json()) as { error?: string };
-        msg = body.error ?? (await resp.text());
+        const body = JSON.parse(text) as { error?: string };
+        msg = body.error ?? text;
       } catch {
-        msg = await resp.text();
+        msg = text;
       }
       throw new PayServerError(msg, resp.status);
     }

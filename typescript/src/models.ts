@@ -33,7 +33,10 @@ export interface StatusResponse {
   address: string;
   /** USDC balance in micro-units. */
   balance: number;
-  openTabs: Tab[];
+  /** Number of open tabs. */
+  openTabCount: number;
+  /** Total USDC locked in open tabs, in micro-units. */
+  totalLocked: number;
 }
 
 /** Registered webhook. */
