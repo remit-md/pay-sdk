@@ -225,7 +225,7 @@ export class Wallet {
     events: string[],
     secret?: string
   ): Promise<{ id: string }> {
-    const payload: Record<string, unknown> = { url, events, wallet: this.address };
+    const payload: Record<string, unknown> = { url, events };
     if (secret) payload.secret = secret;
     const resp = await this._authFetch("/webhooks", {
       method: "POST",
