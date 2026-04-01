@@ -15,10 +15,11 @@ class TabStatus(str, Enum):
 class DirectPaymentResult(BaseModel):
     """Result of a direct payment."""
 
-    tx_hash: str
+    payment_id: str = ""
+    tx_hash: str | None = None
     status: str = "confirmed"
-    amount: int = Field(description="Amount in USDC micro-units (6 decimals)")
-    fee: int = Field(description="Fee deducted in USDC micro-units")
+    amount: int = Field(default=0, description="Amount in USDC micro-units (6 decimals)")
+    fee: int = Field(default=0, description="Fee deducted in USDC micro-units")
 
 
 class Tab(BaseModel):
