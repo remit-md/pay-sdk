@@ -237,12 +237,18 @@ export class PayClient {
     amount: number
   ): Promise<Response> {
     const result = await this.payDirect(provider, amount);
+    // Server returns snake_case (tx_hash) but TS model uses camelCase (txHash).
+    // Access both to handle either case.
+    const txHash =
+      result.txHash ??
+      (result as unknown as { tx_hash?: string }).tx_hash ??
+      "";
     return fetch(url, {
       method,
       body,
       headers: {
         ...headers,
-        "X-Payment-Tx": result.txHash ?? "",
+        "X-Payment-Tx": txHash,
         "X-Payment-Status": result.status,
       },
     });
