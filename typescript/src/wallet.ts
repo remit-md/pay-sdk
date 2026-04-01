@@ -124,9 +124,10 @@ export class Wallet {
     const spender = flow === "tab" ? contracts.tab : contracts.direct;
 
     // Server prepares the permit: reads nonce via its own RPC, computes EIP-712 hash
-    const prepResp = await this._authFetch(
-      `/permit/prepare?amount=${amount}&spender=${spender}`
-    );
+    const prepResp = await this._authFetch("/permit/prepare", {
+      method: "POST",
+      body: JSON.stringify({ amount, spender }),
+    });
     if (!prepResp.ok) {
       const err = (await prepResp.json().catch(() => ({}))) as { error?: string };
       throw new Error(err.error ?? `permit/prepare failed: ${prepResp.status}`);
