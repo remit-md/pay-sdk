@@ -58,6 +58,11 @@ class StatusResponse(BaseModel):
 class WebhookRegistration(BaseModel):
     """Registered webhook."""
 
-    webhook_id: str
+    id: str
     url: str
     events: list[str]
+
+    @property
+    def webhook_id(self) -> str:
+        """Alias for backwards compat."""
+        return self.id

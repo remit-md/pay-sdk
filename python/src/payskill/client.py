@@ -79,6 +79,51 @@ class PayClient:
     def __exit__(self, *args: object) -> None:
         self.close()
 
+    # ── Contracts ───────────────────────────────────────────────────
+
+    _contracts_cache: dict[str, str] | None = None
+
+    def _get_contracts(self) -> dict[str, str]:
+        """Fetch contract addresses from server (cached)."""
+        if self._contracts_cache is None:
+            resp = self._http.get("/contracts", timeout=10)
+            resp.raise_for_status()
+            self._contracts_cache = resp.json()
+        return self._contracts_cache  # type: ignore[return-value]
+
+    # ── Permit Signing ─────────────────────────────────────────────
+
+    def _sign_permit(self, flow: str, amount: int) -> dict[str, Any]:
+        """Sign an EIP-2612 permit via the server's /permit/prepare endpoint.
+
+        1. POST /permit/prepare { amount, spender } — server returns EIP-712 hash
+        2. Sign the hash locally with the agent's key
+        3. Return { nonce, deadline, v, r, s }
+        """
+        contracts = self._get_contracts()
+        spender = contracts.get("tab" if flow == "tab" else "direct", "")
+        if not spender:
+            raise PayServerError(f"Contract address for {flow} not available", status_code=0)
+
+        prep = self._post("/permit/prepare", {"amount": amount, "spender": spender})
+
+        hash_hex: str = prep["hash"]
+        hash_clean = hash_hex[2:] if hash_hex.startswith("0x") else hash_hex
+        hash_bytes = bytes.fromhex(hash_clean)
+
+        sig_bytes = self._signer.sign(hash_bytes)
+        r = "0x" + sig_bytes[:32].hex()
+        s = "0x" + sig_bytes[32:64].hex()
+        v = sig_bytes[64]
+
+        return {
+            "nonce": prep["nonce"],
+            "deadline": prep["deadline"],
+            "v": v,
+            "r": r,
+            "s": s,
+        }
+
     # ── Direct Payment ──────────────────────────────────────────────
 
     def pay_direct(self, to: str, amount: int, memo: str = "") -> DirectPaymentResult:
@@ -91,7 +136,8 @@ class PayClient:
         """
         _validate_address(to, field="to")
         _validate_amount(amount, _DIRECT_MIN)
-        data = self._post("/direct", {"to": to, "amount": amount, "memo": memo})
+        permit = self._sign_permit("direct", amount)
+        data = self._post("/direct", {"to": to, "amount": amount, "memo": memo, "permit": permit})
         return DirectPaymentResult.model_validate(data)
 
     # ── Tab Management ──────────────────────────────────────────────
@@ -110,12 +156,14 @@ class PayClient:
             raise PayValidationError(
                 "max_charge_per_call must be positive", field="max_charge_per_call"
             )
+        permit = self._sign_permit("tab", amount)
         data = self._post(
             "/tabs",
             {
                 "provider": provider,
                 "amount": amount,
                 "max_charge_per_call": max_charge_per_call,
+                "permit": permit,
             },
         )
         return Tab.model_validate(data)
@@ -128,7 +176,8 @@ class PayClient:
     def top_up_tab(self, tab_id: str, amount: int) -> Tab:
         """Add funds to an open tab."""
         _validate_amount(amount, 1, field="amount")
-        data = self._post(f"/tabs/{tab_id}/topup", {"amount": amount})
+        permit = self._sign_permit("tab", amount)
+        data = self._post(f"/tabs/{tab_id}/topup", {"amount": amount, "permit": permit})
         return Tab.model_validate(data)
 
     def list_tabs(self) -> list[Tab]:
