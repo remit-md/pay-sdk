@@ -24,7 +24,7 @@ const TESTNET_KEY = process.env.PAYSKILL_TESTNET_KEY ?? "";
 
 // Testnet contract addresses (Base Sepolia)
 const CHAIN_ID = 84532;
-const ROUTER_ADDRESS = "0x3A6d9C4d5f0ef2E2f282A6BB0BDf6d4707ea3B95";
+const ROUTER_ADDRESS = "0xE0Aa45e6937F3b9Fc0BEe457361885Cb9bfC067F";
 
 const skip = !TESTNET_KEY;
 
