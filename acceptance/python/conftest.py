@@ -6,7 +6,7 @@ against live Base Sepolia. No mocks.
 """
 
 import os
-import json
+
 import httpx
 from eth_account import Account
 
@@ -59,7 +59,7 @@ def get_on_chain_balance(address: str, usdc_address: str) -> int:
 def wait_for_balance_change(
     address: str, usdc_address: str, before: int, max_wait_s: int = 60
 ) -> int:
-    """Poll until balance changes."""
+    """Poll until balance changes. Raises TimeoutError if balance is still stale."""
     import time
 
     start = time.time()
@@ -70,4 +70,9 @@ def wait_for_balance_change(
             return current
         time.sleep(delay)
         delay = min(delay * 1.5, 10)
-    return get_on_chain_balance(address, usdc_address)
+    final = get_on_chain_balance(address, usdc_address)
+    if final == before:
+        raise TimeoutError(
+            f"Balance for {address} did not change from {before} after {max_wait_s}s"
+        )
+    return final

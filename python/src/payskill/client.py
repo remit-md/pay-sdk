@@ -131,6 +131,16 @@ class PayClient:
         data = self._post(f"/tabs/{tab_id}/topup", {"amount": amount})
         return Tab.model_validate(data)
 
+    def charge_tab(self, tab_id: str, amount: int) -> dict:
+        """Charge a tab (provider-side).
+
+        Args:
+            tab_id: The tab to charge.
+            amount: Amount in USDC micro-units.
+        """
+        _validate_amount(amount, 1, field="amount")
+        return self._post(f"/tabs/{tab_id}/charge", {"amount": amount})
+
     def list_tabs(self) -> list[Tab]:
         """List all open tabs."""
         data = self._get("/tabs")

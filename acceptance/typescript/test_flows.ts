@@ -297,8 +297,8 @@ describe("SDK Acceptance — TypeScript", () => {
         () => agentWallet.payDirect("not-an-address", 5, ""),
         (err: unknown) => {
           assert.ok(
-            err instanceof PayValidationError || err instanceof Error,
-            "should throw validation error",
+            err instanceof PayValidationError,
+            `should throw PayValidationError, got ${(err as Error).constructor.name}`,
           );
           return true;
         },
@@ -310,7 +310,10 @@ describe("SDK Acceptance — TypeScript", () => {
         () =>
           agentWallet.payDirect(providerWallet.address, 0.5, ""),
         (err: unknown) => {
-          assert.ok(err instanceof Error, "should throw error");
+          assert.ok(
+            err instanceof PayValidationError,
+            `should throw PayValidationError, got ${(err as Error).constructor.name}`,
+          );
           return true;
         },
       );
@@ -327,8 +330,17 @@ describe("SDK Acceptance — TypeScript", () => {
       await assert.rejects(
         () => badClient.getStatus(),
         (err: unknown) => {
-          // Should fail with auth error or missing signer
-          assert.ok(err instanceof Error);
+          // Should fail with auth/server error, not a generic Error
+          assert.ok(
+            err instanceof PayServerError || err instanceof PayValidationError,
+            `should throw PayServerError or PayValidationError, got ${(err as Error).constructor.name}`,
+          );
+          if (err instanceof PayServerError) {
+            assert.ok(
+              err.statusCode === 401 || err.statusCode === 403,
+              `expected 401 or 403 status, got ${err.statusCode}`,
+            );
+          }
           return true;
         },
       );
