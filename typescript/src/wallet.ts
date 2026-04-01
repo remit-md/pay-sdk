@@ -223,11 +223,13 @@ export class Wallet {
   async registerWebhook(
     url: string,
     events: string[],
-    _chains?: string[]
+    secret?: string
   ): Promise<{ id: string }> {
+    const payload: Record<string, unknown> = { url, events, wallet: this.address };
+    if (secret) payload.secret = secret;
     const resp = await this._authFetch("/webhooks", {
       method: "POST",
-      body: JSON.stringify({ url, events, wallet: this.address }),
+      body: JSON.stringify(payload),
     });
     if (!resp.ok) throw new Error(`registerWebhook failed: ${resp.status}`);
     return (await resp.json()) as { id: string };

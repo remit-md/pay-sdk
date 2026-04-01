@@ -37,7 +37,7 @@ class TestDirectPayment:
         self.agent_key, self.agent_addr = generate_wallet()
         self.provider_key, self.provider_addr = generate_wallet()
 
-        mint(self.agent_addr, 200_000_000)  # 200 USDC
+        mint(self.agent_addr, 200)  # 200 USDC (server expects whole USDC)
         wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
 
     def test_pay_direct_transfers_usdc(self):
@@ -76,7 +76,7 @@ class TestTabLifecycle:
         self.agent_key, self.agent_addr = generate_wallet()
         self.provider_key, self.provider_addr = generate_wallet()
 
-        mint(self.agent_addr, 200_000_000)
+        mint(self.agent_addr, 200)  # 200 USDC
         wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
 
     def test_open_charge_close(self):
@@ -117,7 +117,7 @@ class TestStatus:
     def setup_method(self):
         self.contracts = get_contracts()
         self.key, self.addr = generate_wallet()
-        mint(self.addr, 50_000_000)
+        mint(self.addr, 50)  # 50 USDC
         wait_for_balance_change(self.addr, self.contracts["usdc"], 0)
 
     def test_get_status(self):
@@ -152,7 +152,7 @@ class TestWebhookCRUD:
         hook_url = f"https://example.com/hooks/py-test-{int(time.time())}"
 
         # Register
-        reg = client.register_webhook(hook_url, events=["tab.charged", "payment.completed"])
+        reg = client.register_webhook(hook_url, events=["tab.charged", "payment.completed"], secret="whsec_test_acceptance_secret")
         assert reg.webhook_id, "should return webhook_id"
 
         # List
@@ -206,7 +206,7 @@ class TestX402Request:
         self.contracts = get_contracts()
         self.agent_key, self.agent_addr = generate_wallet()
         self.provider_key, self.provider_addr = generate_wallet()
-        mint(self.agent_addr, 200_000_000)
+        mint(self.agent_addr, 200)  # 200 USDC
         wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
 
     def test_request_handles_402_direct(self):
