@@ -52,7 +52,7 @@ describe("E2E: Auth works with real signing", { skip }, () => {
     assert.ok(status.address.startsWith("0x"));
     assert.ok(typeof status.balance === "number");
     assert.ok(status.balance >= 0);
-    assert.ok(Array.isArray(status.openTabs));
+    assert.ok(typeof status.openTabCount === "number");
   });
 
   it("rejects request without auth headers (raw fetch)", async () => {
