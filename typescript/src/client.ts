@@ -369,11 +369,11 @@ export class PayClient {
       );
     }
 
-    const prepare = await this.get<{
+    const prepare = await this.post<{
       hash: string;
       nonce: string;
       deadline: number;
-    }>(`/permit/prepare?amount=${amount}&spender=${spender}`);
+    }>("/permit/prepare", { amount, spender });
 
     // Sign the hash
     const hashHex = prepare.hash as Hex;
@@ -403,9 +403,9 @@ export class PayClient {
   ): Promise<AuthHeaders | null> {
     if (!this._authConfig) return null;
 
-    // Sign the full URL path the server sees (basePath + relative path).
+    // Sign only the path portion (no query string) — server verifies against uri.path().
     // e.g., basePath="/api/v1" + path="/status" → "/api/v1/status"
-    const fullPath = this._basePath + path;
+    const fullPath = this._basePath + path.split("?")[0];
 
     if (this._privateKey) {
       return buildAuthHeaders(

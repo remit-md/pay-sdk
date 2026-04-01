@@ -173,8 +173,8 @@ describe("SDK Acceptance — TypeScript", () => {
       // Open tab
       const tab = await agentWallet.openTab(
         providerWallet.address,
-        20_000_000, // $20
-        2_000_000, // max $2/charge
+        20, // $20
+        2, // max $2/charge
       );
       assert.ok(tab.tab_id || tab.id, "should return tab_id");
       const tabId = tab.tab_id ?? tab.id;
@@ -183,7 +183,7 @@ describe("SDK Acceptance — TypeScript", () => {
       await new Promise((r) => setTimeout(r, 5000));
 
       // Charge (provider side)
-      const charge = await providerWallet.chargeTab(tabId, 1_000_000); // $1
+      const charge = await providerWallet.chargeTab(tabId, 1); // $1
       assert.ok(
         charge.status === "approved" || charge.status === "confirmed",
         `charge should be approved, got ${charge.status}`,

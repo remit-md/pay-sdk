@@ -25,7 +25,7 @@ def mint(address: str, amount: int) -> str:
     resp = httpx.post(
         f"{API_URL}/mint",
         json={"wallet": address, "amount": amount},
-        timeout=30,
+        timeout=60,
     )
     resp.raise_for_status()
     return resp.json()["tx_hash"]
