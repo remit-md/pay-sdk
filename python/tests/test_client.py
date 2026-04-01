@@ -9,6 +9,8 @@ from payskill.signer import CallbackSigner
 
 VALID_ADDR = "0x" + "a1" * 20
 PROVIDER_ADDR = "0x" + "b2" * 20
+DIRECT_CONTRACT = "0x" + "d1" * 20
+TAB_CONTRACT = "0x" + "d2" * 20
 
 # Dummy signer that returns 65 zero bytes
 _DUMMY_SIGNER = CallbackSigner(callback=lambda h: b"\x00" * 65)
@@ -19,8 +21,23 @@ def client() -> PayClient:
     return PayClient(api_url=DEFAULT_API_URL, signer=_DUMMY_SIGNER)
 
 
+def mock_permit_flow(httpx_mock: HTTPXMock) -> None:
+    """Add mocks for /contracts and /permit/prepare (needed by pay_direct, open_tab, etc.)."""
+    httpx_mock.add_response(
+        url=f"{DEFAULT_API_URL}/contracts",
+        method="GET",
+        json={"router": "0x" + "00" * 20, "tab": TAB_CONTRACT, "direct": DIRECT_CONTRACT, "usdc": "0x" + "00" * 20},
+    )
+    httpx_mock.add_response(
+        url=f"{DEFAULT_API_URL}/permit/prepare",
+        method="POST",
+        json={"hash": "0x" + "ab" * 32, "nonce": "0", "deadline": 9999999999},
+    )
+
+
 class TestPayDirect:
     def test_happy_path(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        mock_permit_flow(httpx_mock)
         httpx_mock.add_response(
             url=f"{DEFAULT_API_URL}/direct",
             method="POST",
@@ -45,6 +62,7 @@ class TestPayDirect:
             client.pay_direct(VALID_ADDR, 500_000)
 
     def test_server_error(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        mock_permit_flow(httpx_mock)
         httpx_mock.add_response(
             url=f"{DEFAULT_API_URL}/direct",
             method="POST",
@@ -58,6 +76,7 @@ class TestPayDirect:
 
 class TestOpenTab:
     def test_happy_path(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        mock_permit_flow(httpx_mock)
         httpx_mock.add_response(
             url=f"{DEFAULT_API_URL}/tabs",
             method="POST",
@@ -116,7 +135,7 @@ class TestWebhooks:
             url=f"{DEFAULT_API_URL}/webhooks",
             method="POST",
             json={
-                "webhook_id": "wh_123",
+                "id": "wh_123",
                 "url": "https://example.com/hook",
                 "events": ["tab.charged"],
             },
@@ -134,6 +153,7 @@ class TestX402Request:
 
     def test_402_direct_settlement(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
         """402 with direct settlement — SDK pays and retries."""
+        mock_permit_flow(httpx_mock)
         # First request: 402
         httpx_mock.add_response(
             url="https://api.example.com/premium",

@@ -68,6 +68,7 @@ class PayClient:
         from urllib.parse import urlparse
 
         self._base_path = urlparse(self._api_url).path.rstrip("/")
+        self._contracts_cache: dict[str, str] | None = None
 
     def close(self) -> None:
         """Close the HTTP client."""
@@ -81,10 +82,8 @@ class PayClient:
 
     # ── Contracts ───────────────────────────────────────────────────
 
-    _contracts_cache: dict[str, str] | None = None
-
     def _get_contracts(self) -> dict[str, str]:
-        """Fetch contract addresses from server (cached)."""
+        """Fetch contract addresses from server (cached per instance)."""
         if self._contracts_cache is None:
             resp = self._http.get("/contracts", timeout=10)
             resp.raise_for_status()
