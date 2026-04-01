@@ -114,44 +114,34 @@ export class Wallet {
 
   /**
    * Sign an EIP-2612 permit for a given spender and amount.
-   * Signs client-side: reads USDC nonce via RPC, computes EIP-712 hash, signs locally.
+   * Uses the server's /permit/prepare endpoint to get the nonce and hash,
+   * then signs the hash locally.
    * @param flow — "direct" or "tab" (used to look up the spender contract address)
    * @param amount — micro-USDC amount
    */
   async signPermit(flow: string, amount: number): Promise<PermitResult> {
     const contracts = await this.getContracts();
     const spender = flow === "tab" ? contracts.tab : contracts.direct;
-    const usdcAddress = contracts.usdc;
 
-    // Read USDC permit nonce via RPC (nonces(address) selector = 0x7ecebe00)
-    const nonce = await this._readUsdcNonce(usdcAddress);
-    const deadline = Math.floor(Date.now() / 1000) + 1800; // 30 min
+    // Server prepares the permit: reads nonce via its own RPC, computes EIP-712 hash
+    const prepResp = await this._authFetch(
+      `/permit/prepare?amount=${amount}&spender=${spender}`
+    );
+    if (!prepResp.ok) {
+      const err = (await prepResp.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `permit/prepare failed: ${prepResp.status}`);
+    }
+    const prep = (await prepResp.json()) as {
+      hash: string;
+      nonce: string;
+      deadline: number;
+      spender: string;
+      amount: number;
+    };
 
-    // Sign EIP-712 typed data for USDC permit
-    const signature = await this._account.signTypedData({
-      domain: {
-        name: "USD Coin",
-        version: "2",
-        chainId: this._chainId,
-        verifyingContract: usdcAddress as Address,
-      },
-      types: {
-        Permit: [
-          { name: "owner", type: "address" },
-          { name: "spender", type: "address" },
-          { name: "value", type: "uint256" },
-          { name: "nonce", type: "uint256" },
-          { name: "deadline", type: "uint256" },
-        ],
-      },
-      primaryType: "Permit",
-      message: {
-        owner: this.address as Address,
-        spender: spender as Address,
-        value: BigInt(amount),
-        nonce: BigInt(nonce),
-        deadline: BigInt(deadline),
-      },
+    // Sign the pre-computed hash locally
+    const signature = await this._account.signMessage({
+      message: { raw: prep.hash as `0x${string}` },
     });
 
     // Parse 65-byte signature into v, r, s
@@ -160,32 +150,7 @@ export class Wallet {
     const s = "0x" + sigClean.slice(64, 128);
     const v = parseInt(sigClean.slice(128, 130), 16);
 
-    return { nonce: String(nonce), deadline, v, r, s };
-  }
-
-  /** Read USDC permit nonce for this wallet via RPC eth_call. */
-  private async _readUsdcNonce(usdcAddress: string): Promise<number> {
-    const paddedAddr = this.address.toLowerCase().replace("0x", "").padStart(64, "0");
-    const data = `0x7ecebe00${paddedAddr}`;
-
-    const rpcUrl = this._chainId === 84532
-      ? "https://sepolia.base.org"
-      : "https://mainnet.base.org";
-
-    const res = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "eth_call",
-        params: [{ to: usdcAddress, data }, "latest"],
-      }),
-    });
-    const json = (await res.json()) as { result?: string; error?: { message: string } };
-    // Testnet USDC mock may not implement nonces() — default to 0
-    if (json.error) return 0;
-    return parseInt(json.result ?? "0x0", 16);
+    return { nonce: prep.nonce, deadline: prep.deadline, v, r, s };
   }
 
   /** Send a direct payment. Auto-signs permit if not provided. */
