@@ -121,8 +121,8 @@ describe("SDK Acceptance — TypeScript", () => {
       routerAddress: contracts.router,
     });
 
-    // Fund agent with 200 USDC
-    await mint(agentWallet.address, 200_000_000);
+    // Fund agent with 200 USDC (server expects whole USDC, not micro)
+    await mint(agentWallet.address, 200);
     await waitForChange(agentWallet.address, contracts.usdc, 0);
   });
 
@@ -200,10 +200,11 @@ describe("SDK Acceptance — TypeScript", () => {
       const hookUrl = `https://example.com/hooks/sdk-test-${Date.now()}`;
 
       // Register
-      const reg = await agentWallet.registerWebhook(hookUrl, [
-        "tab.charged",
-        "payment.completed",
-      ]);
+      const reg = await agentWallet.registerWebhook(
+        hookUrl,
+        ["tab.charged", "payment.completed"],
+        "whsec_test_acceptance_secret"
+      );
       assert.ok(reg.id, "register should return id");
 
       // List — should appear
