@@ -38,6 +38,7 @@ class Tab(BaseModel):
     max_charge_per_call: int = Field(default=0, description="Max per-charge limit")
     activation_fee: int = Field(default=0, description="Activation fee charged")
     tx_hash: str | None = None
+    total_withdrawn: int = Field(default=0, description="Total withdrawn so far")
     status: str = "open"
     auto_close_after: str | None = None
 

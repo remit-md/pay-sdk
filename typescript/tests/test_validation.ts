@@ -39,6 +39,18 @@ describe("payDirect validation", () => {
   });
 });
 
+describe("withdrawTab", () => {
+  it("calls POST /tabs/:id/withdraw (fails on network, not validation)", async () => {
+    await assert.rejects(
+      () => client.withdrawTab("tab_abc"),
+      (err: Error) => {
+        assert.ok(!(err instanceof PayValidationError));
+        return true;
+      }
+    );
+  });
+});
+
 describe("openTab validation", () => {
   it("rejects amount below $5 minimum", async () => {
     await assert.rejects(

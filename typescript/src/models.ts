@@ -25,6 +25,8 @@ export interface Tab {
   chargeCount: number;
   /** Max per-charge limit in USDC micro-units. */
   maxChargePerCall: number;
+  /** Total withdrawn so far in USDC micro-units. */
+  totalWithdrawn: number;
   status: TabStatus;
 }
 

@@ -109,6 +109,40 @@ class TestOpenTab:
             client.open_tab(PROVIDER_ADDR, 10_000_000, max_charge_per_call=0)
 
 
+class TestWithdrawTab:
+    def test_happy_path(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/tabs/tab_123/withdraw",
+            method="POST",
+            json={
+                "tab_id": "tab_123",
+                "provider": PROVIDER_ADDR,
+                "amount": 20_000_000,
+                "balance_remaining": 15_000_000,
+                "total_charged": 5_000_000,
+                "total_withdrawn": 5_000_000,
+                "charge_count": 10,
+                "max_charge_per_call": 500_000,
+                "status": "open",
+            },
+        )
+        tab = client.withdraw_tab("tab_123")
+        assert tab.tab_id == "tab_123"
+        assert tab.total_withdrawn == 5_000_000
+        assert tab.status == "open"
+
+    def test_server_error(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/tabs/tab_456/withdraw",
+            method="POST",
+            status_code=403,
+            json={"error": "not the provider"},
+        )
+        with pytest.raises(PayServerError) as exc_info:
+            client.withdraw_tab("tab_456")
+        assert exc_info.value.status_code == 403
+
+
 class TestListTabs:
     def test_empty(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
         httpx_mock.add_response(

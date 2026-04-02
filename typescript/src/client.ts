@@ -167,6 +167,10 @@ export class PayClient {
     return this.post<Tab>(`/tabs/${tabId}/close`, {});
   }
 
+  async withdrawTab(tabId: string): Promise<Tab> {
+    return this.post<Tab>(`/tabs/${tabId}/withdraw`, {});
+  }
+
   async topUpTab(tabId: string, amount: number): Promise<Tab> {
     validateAmount(amount, 1, "amount");
     const contracts = await this.get<{ tab: string }>("/contracts");
