@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from payskill.ows_signer import OwsSigner
 
+from payskill.ows_signer import OwsSigner
 
 # ── Mock OWS module ──────────────────────────────────────────────────
 
