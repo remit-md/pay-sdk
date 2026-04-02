@@ -162,9 +162,7 @@ class TestSignTypedData:
     @pytest.mark.asyncio()
     async def test_passes_api_key_as_passphrase(self):
         mock = MockOws()
-        signer = OwsSigner(
-            wallet_id="pay-test", ows_api_key="ows_key_secret123", _ows_module=mock
-        )
+        signer = OwsSigner(wallet_id="pay-test", ows_api_key="ows_key_secret123", _ows_module=mock)
         await signer.sign_typed_data(self.DOMAIN, self.TYPES, self.VALUE)
 
         test_key = "ows_key_secret123"  # noqa: S105
@@ -262,17 +260,13 @@ class TestSignRawHashRejection:
 class TestSecurity:
     def test_repr_does_not_expose_api_key(self):
         mock = MockOws()
-        signer = OwsSigner(
-            wallet_id="pay-test", ows_api_key="ows_key_topsecret", _ows_module=mock
-        )
+        signer = OwsSigner(wallet_id="pay-test", ows_api_key="ows_key_topsecret", _ows_module=mock)
         output = repr(signer)
         assert "topsecret" not in output
         assert "pay-test" in output
 
     def test_str_does_not_expose_api_key(self):
         mock = MockOws()
-        signer = OwsSigner(
-            wallet_id="pay-test", ows_api_key="ows_key_topsecret", _ows_module=mock
-        )
+        signer = OwsSigner(wallet_id="pay-test", ows_api_key="ows_key_topsecret", _ows_module=mock)
         output = str(signer)
         assert "topsecret" not in output

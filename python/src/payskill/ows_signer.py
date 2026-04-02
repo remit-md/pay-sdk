@@ -66,16 +66,14 @@ class OwsSigner(Signer):
             (
                 a
                 for a in accounts
-                if a.get("chain_id") == "evm"
-                or a.get("chain_id", "").startswith("eip155:")
+                if a.get("chain_id") == "evm" or a.get("chain_id", "").startswith("eip155:")
             ),
             None,
         )
         if evm_account is None:
             chains = ", ".join(a.get("chain_id", "?") for a in accounts) or "none"
             raise ValueError(
-                f"No EVM account found in OWS wallet '{wallet_id}'. "
-                f"Available chains: {chains}."
+                f"No EVM account found in OWS wallet '{wallet_id}'. Available chains: {chains}."
             )
         self._address: str = evm_account["address"]
 
