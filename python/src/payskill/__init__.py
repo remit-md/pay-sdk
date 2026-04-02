@@ -8,7 +8,7 @@ from payskill.models import DirectPaymentResult, Tab, TabStatus
 try:
     from payskill.ows_signer import OwsSigner
 except ImportError:
-    OwsSigner = None
+    OwsSigner = None  # type: ignore[assignment,misc]
 
 __all__ = [
     "PayClient",
