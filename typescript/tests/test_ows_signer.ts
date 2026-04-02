@@ -114,11 +114,13 @@ describe("OwsSigner.create", () => {
     );
   });
 
-  it("throws clear error when OWS not installed", async () => {
-    // Without _owsModule, create() will try dynamic import which will fail
+  it("throws clear error when OWS not installed or wallet missing", async () => {
+    // Without _owsModule, create() will try dynamic import.
+    // If OWS is installed (e.g. peer dep in CI), it throws "wallet not found".
+    // If OWS is NOT installed, it throws "not installed".
     await assert.rejects(
       () => OwsSigner.create({ walletId: "pay-missing" }),
-      { message: /not installed/ },
+      { message: /not installed|wallet not found/ },
     );
   });
 });
