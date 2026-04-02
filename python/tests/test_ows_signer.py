@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from payskill.ows_signer import OwsSigner
 
 
@@ -168,9 +167,10 @@ class TestSignTypedData:
         )
         await signer.sign_typed_data(self.DOMAIN, self.TYPES, self.VALUE)
 
-        assert mock.calls[0]["passphrase"] == "ows_key_secret123"
+        test_key = "ows_key_secret123"  # noqa: S105
+        assert mock.calls[0]["passphrase"] == test_key
         # API key must NOT appear in the JSON payload
-        assert "ows_key_secret123" not in mock.calls[0]["json"]
+        assert test_key not in mock.calls[0]["json"]
 
     @pytest.mark.asyncio()
     async def test_only_includes_present_domain_fields(self):
