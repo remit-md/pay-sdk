@@ -5,6 +5,11 @@ from payskill.client import PayClient
 from payskill.errors import PayError, PayNetworkError, PayValidationError
 from payskill.models import DirectPaymentResult, Tab, TabStatus
 
+try:
+    from payskill.ows_signer import OwsSigner
+except ImportError:
+    OwsSigner = None
+
 __all__ = [
     "PayClient",
     "PayError",
@@ -15,4 +20,5 @@ __all__ = [
     "TabStatus",
     "build_auth_headers",
     "derive_address",
+    "OwsSigner",
 ]

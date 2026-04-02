@@ -28,6 +28,9 @@ Homepage = "https://pay-skill.com"
 Repository = "https://github.com/remit-md/pay-sdk"
 
 [project.optional-dependencies]
+ows = [
+    "open-wallet-standard>=1.2",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
