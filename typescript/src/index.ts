@@ -25,6 +25,9 @@ export {
   createSigner,
 } from "./signer.js";
 
+export { OwsSigner } from "./ows-signer.js";
+export type { OwsSignerOptions } from "./ows-signer.js";
+
 export { Wallet, PrivateKeySigner } from "./wallet.js";
 export type {
   WalletOptions,

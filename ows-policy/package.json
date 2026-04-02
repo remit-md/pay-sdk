@@ -1,0 +1,37 @@
+{
+  "name": "@pay-skill/ows-policy",
+  "version": "0.1.0",
+  "description": "OWS policy executable for Pay — chain lock, contract allowlist, per-tx and daily spending caps",
+  "type": "module",
+  "main": "./dist/pay-policy.js",
+  "bin": {
+    "pay-policy": "./dist/pay-policy.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --import tsx --test tests/*.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
+  "keywords": [
+    "pay",
+    "pay-skill",
+    "ows",
+    "open-wallet-standard",
+    "policy",
+    "usdc",
+    "base"
+  ]
+}
