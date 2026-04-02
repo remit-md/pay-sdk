@@ -25,13 +25,17 @@ class MockOws:
         signature: str = "aa" * 64,
         recovery_id: int = 0,
     ):
-        self.accounts = accounts or [
-            {
-                "chain_id": "eip155:8453",
-                "address": "0x1234567890abcdef1234567890abcdef12345678",
-                "derivation_path": "m/44'/60'/0'/0/0",
-            }
-        ]
+        self.accounts = (
+            accounts
+            if accounts is not None
+            else [
+                {
+                    "chain_id": "eip155:8453",
+                    "address": "0x1234567890abcdef1234567890abcdef12345678",
+                    "derivation_path": "m/44'/60'/0'/0/0",
+                }
+            ]
+        )
         self._signature = signature
         self._recovery_id = recovery_id
         self.calls: list[dict[str, object]] = []
