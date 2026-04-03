@@ -288,11 +288,13 @@ class PayClient:
         result = self.pay_direct(provider, amount)
 
         # V2: send PAYMENT-SIGNATURE header with payment proof JSON
-        payment_signature = json.dumps({
-            "settlement": "direct",
-            "tx_hash": result.tx_hash or "",
-            "status": result.status,
-        })
+        payment_signature = json.dumps(
+            {
+                "settlement": "direct",
+                "tx_hash": result.tx_hash or "",
+                "status": result.status,
+            }
+        )
 
         payment_headers = {
             **headers,
@@ -326,11 +328,13 @@ class PayClient:
         charge_data = self._post(f"/tabs/{tab.tab_id}/charge", {"amount": amount})
 
         # V2: send PAYMENT-SIGNATURE header with payment proof JSON
-        payment_signature = json.dumps({
-            "settlement": "tab",
-            "tab_id": tab.tab_id,
-            "charge_id": charge_data.get("charge_id", ""),
-        })
+        payment_signature = json.dumps(
+            {
+                "settlement": "tab",
+                "tab_id": tab.tab_id,
+                "charge_id": charge_data.get("charge_id", ""),
+            }
+        )
 
         payment_headers = {
             **headers,
