@@ -209,6 +209,42 @@ export class PayClient {
     return this.handle402(resp, url, method, bodyStr, headers);
   }
 
+  /**
+   * Parse x402 V2 payment requirements from a 402 response.
+   *
+   * Checks PAYMENT-REQUIRED header first (base64-encoded JSON),
+   * falls back to response body for requirements.
+   */
+  private async parse402Requirements(resp: Response): Promise<{
+    settlement: string;
+    amount: number;
+    to: string;
+  }> {
+    // V2: check PAYMENT-REQUIRED header (base64-encoded JSON)
+    const prHeader = resp.headers.get("payment-required");
+    if (prHeader) {
+      try {
+        const decoded = JSON.parse(atob(prHeader)) as Record<string, unknown>;
+        return {
+          settlement: String(decoded.settlement ?? "direct"),
+          amount: Number(decoded.amount ?? 0),
+          to: String(decoded.to ?? ""),
+        };
+      } catch {
+        // Fall through to body parsing
+      }
+    }
+
+    // Fallback: parse from response body
+    const body = (await resp.json()) as Record<string, unknown>;
+    const requirements = (body.requirements ?? body) as Record<string, unknown>;
+    return {
+      settlement: String(requirements.settlement ?? "direct"),
+      amount: Number(requirements.amount ?? 0),
+      to: String(requirements.to ?? ""),
+    };
+  }
+
   private async handle402(
     resp: Response,
     url: string,
@@ -216,15 +252,10 @@ export class PayClient {
     body: string | undefined,
     headers: Record<string, string>
   ): Promise<Response> {
-    const requirements = (await resp.json()) as {
-      settlement?: string;
-      amount?: number;
-      to?: string;
-    };
-
-    const settlement = requirements.settlement ?? "direct";
-    const amount = Number(requirements.amount ?? 0);
-    const provider = requirements.to ?? "";
+    const { settlement, amount, provider } = await (async () => {
+      const r = await this.parse402Requirements(resp);
+      return { settlement: r.settlement, amount: r.amount, provider: r.to };
+    })();
 
     if (settlement === "tab") {
       return this.settleViaTab(url, method, body, headers, provider, amount);
@@ -242,18 +273,24 @@ export class PayClient {
   ): Promise<Response> {
     const result = await this.payDirect(provider, amount);
     // Server returns snake_case (tx_hash) but TS model uses camelCase (txHash).
-    // Access both to handle either case.
     const txHash =
       result.txHash ??
       (result as unknown as { tx_hash?: string }).tx_hash ??
       "";
+
+    // V2: send PAYMENT-SIGNATURE header with payment proof JSON
+    const paymentSignature = JSON.stringify({
+      settlement: "direct",
+      tx_hash: txHash,
+      status: result.status,
+    });
+
     return fetch(url, {
       method,
       body,
       headers: {
         ...headers,
-        "X-Payment-Tx": txHash,
-        "X-Payment-Status": result.status,
+        "PAYMENT-SIGNATURE": paymentSignature,
       },
     });
   }
@@ -284,13 +321,19 @@ export class PayClient {
       { amount }
     );
 
+    // V2: send PAYMENT-SIGNATURE header with payment proof JSON
+    const paymentSignature = JSON.stringify({
+      settlement: "tab",
+      tab_id: tab.tabId,
+      charge_id: chargeData.chargeId ?? "",
+    });
+
     return fetch(url, {
       method,
       body,
       headers: {
         ...headers,
-        "X-Payment-Tab": tab.tabId,
-        "X-Payment-Charge": chargeData.chargeId ?? "",
+        "PAYMENT-SIGNATURE": paymentSignature,
       },
     });
   }
