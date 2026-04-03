@@ -250,23 +250,37 @@ describe("SDK Acceptance — TypeScript", () => {
     });
   });
 
-  describe("x402 Request (direct settlement)", () => {
-    it("handles 402 and pays automatically via payDirect", async () => {
-      // Inline mini x402 server
+  describe("x402 Request V2 (direct settlement)", () => {
+    it("handles 402 with PAYMENT-REQUIRED header and pays automatically", async () => {
+      // Inline mini x402 V2 server
       const { createServer } = await import("node:http");
       const server = createServer((req, res) => {
-        const tx = req.headers["x-payment-tx"];
-        if (tx && typeof tx === "string" && tx.length > 0) {
+        // V2: check PAYMENT-SIGNATURE header
+        const sig = req.headers["payment-signature"];
+        if (sig && typeof sig === "string" && sig.length > 0) {
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ content: "paid", tx }));
+          res.end(JSON.stringify({ content: "paid" }));
         } else {
-          res.writeHead(402, { "Content-Type": "application/json" });
+          // V2: return PAYMENT-REQUIRED header (base64-encoded JSON)
+          const requirements = {
+            scheme: "exact",
+            amount: 1_000_000,
+            to: providerWallet.address,
+            settlement: "direct",
+            facilitator: "https://testnet.pay-skill.com/x402",
+            maxChargePerCall: 1_000_000,
+            network: "eip155:84532",
+          };
+          const reqB64 = Buffer.from(JSON.stringify(requirements)).toString("base64");
+          res.writeHead(402, {
+            "Content-Type": "application/json",
+            "payment-required": reqB64,
+          });
           res.end(
             JSON.stringify({
-              scheme: "exact",
-              amount: 1_000_000,
-              to: providerWallet.address,
-              settlement: "direct",
+              error: "payment_required",
+              message: "This resource requires payment",
+              requirements,
             }),
           );
         }

@@ -201,7 +201,7 @@ class TestFundWithdrawLinks:
 
 
 class TestX402Request:
-    """x402 request() with auto-payment."""
+    """x402 V2 request() with auto-payment."""
 
     def setup_method(self):
         self.contracts = get_contracts()
@@ -211,7 +211,9 @@ class TestX402Request:
         wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
 
     def test_request_handles_402_direct(self):
-        """SDK request() sees 402, pays via payDirect, retries with headers."""
+        """SDK request() sees 402 with PAYMENT-REQUIRED header, pays via payDirect, retries with PAYMENT-SIGNATURE."""
+        import base64
+        import json
         import threading
         from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -219,22 +221,33 @@ class TestX402Request:
 
         class X402Handler(BaseHTTPRequestHandler):
             def do_GET(self):
-                tx = self.headers.get("X-Payment-Tx", "")
-                if tx:
+                # V2: check PAYMENT-SIGNATURE header
+                sig = self.headers.get("PAYMENT-SIGNATURE", "")
+                if sig:
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(b'{"content":"paid"}')
                 else:
-                    self.send_response(402)
-                    self.send_header("Content-Type", "application/json")
-                    self.end_headers()
-                    import json
-                    body = json.dumps({
+                    # V2: return PAYMENT-REQUIRED header (base64-encoded JSON)
+                    requirements = {
                         "scheme": "exact",
                         "amount": 1_000_000,
                         "to": provider_addr,
                         "settlement": "direct",
+                        "facilitator": "https://testnet.pay-skill.com/x402",
+                        "maxChargePerCall": 1_000_000,
+                        "network": "eip155:84532",
+                    }
+                    req_b64 = base64.b64encode(json.dumps(requirements).encode()).decode()
+                    self.send_response(402)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("payment-required", req_b64)
+                    self.end_headers()
+                    body = json.dumps({
+                        "error": "payment_required",
+                        "message": "This resource requires payment",
+                        "requirements": requirements,
                     })
                     self.wfile.write(body.encode())
 
