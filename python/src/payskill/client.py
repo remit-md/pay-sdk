@@ -237,7 +237,7 @@ class PayClient:
                     "amount": int(decoded.get("amount", 0)),
                     "to": str(decoded.get("to", "")),
                 }
-            except Exception:
+            except Exception:  # noqa: S110
                 pass  # Fall through to body parsing
 
         # Fallback: parse from response body
