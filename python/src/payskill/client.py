@@ -222,35 +222,49 @@ class PayClient:
         """Parse x402 V2 payment requirements from a 402 response.
 
         Checks PAYMENT-REQUIRED header first (base64-encoded JSON),
-        falls back to response body.
+        falls back to response body. Requires x402Version 2 with
+        a non-empty ``accepts`` array.
         """
         import base64
         import json
 
-        # V2: check PAYMENT-REQUIRED header (base64-encoded JSON)
         pr_header = resp.headers.get("payment-required")
         if pr_header:
             try:
                 decoded = json.loads(base64.b64decode(pr_header))
-                return {
-                    "settlement": str(decoded.get("settlement", "direct")),
-                    "amount": int(decoded.get("amount", 0)),
-                    "to": str(decoded.get("to", "")),
-                }
-            except Exception:  # noqa: S110
+                result = PayClient._try_extract_v2(decoded)
+                if result is not None:
+                    return result
+            except (ValueError, json.JSONDecodeError):
                 pass  # Fall through to body parsing
 
-        # Fallback: parse from response body
+        # Fallback: try v2 format in response body
         try:
             body = resp.json()
-        except Exception as e:
+        except ValueError as e:
             raise PayServerError(f"Invalid 402 response: {e}", status_code=402) from e
 
-        requirements = body.get("requirements", body)
+        result = PayClient._try_extract_v2(body)
+        if result is not None:
+            return result
+
+        raise PayServerError("Unrecognized 402 format — expected x402 v2", status_code=402)
+
+    @staticmethod
+    def _try_extract_v2(decoded: dict[str, Any]) -> dict[str, Any] | None:
+        """Extract settlement info from a v2 structure, or None if not v2."""
+        if decoded.get("x402Version") != 2:
+            return None
+        accepts = decoded.get("accepts")
+        if not isinstance(accepts, list) or len(accepts) == 0:
+            return None
+        accepted = accepts[0]
+        extra = accepted.get("extra") or {}
         return {
-            "settlement": str(requirements.get("settlement", "direct")),
-            "amount": int(requirements.get("amount", 0)),
-            "to": str(requirements.get("to", "")),
+            "settlement": extra.get("settlement", "direct"),
+            "amount": int(accepted.get("amount", 0)),
+            "to": accepted.get("payTo", ""),
+            "accepted": accepted,
         }
 
     def _handle_402(
@@ -267,78 +281,86 @@ class PayClient:
         settlement = requirements["settlement"]
         amount = requirements["amount"]
         provider = requirements["to"]
+        accepted = requirements["accepted"]
 
         if settlement == "tab":
-            return self._settle_via_tab(requirements, url, method, body, headers, provider, amount)
-        return self._settle_via_direct(requirements, url, method, body, headers, provider, amount)
+            return self._settle_via_tab(url, method, body, headers, provider, amount, accepted)
+        return self._settle_via_direct(url, method, body, headers, provider, amount, accepted)
 
     def _settle_via_direct(
         self,
-        requirements: dict[str, Any],
         url: str,
         method: str,
         body: Any,
         headers: dict[str, str],
         provider: str,
         amount: int,
+        accepted: dict[str, Any],
     ) -> httpx.Response:
         """Settle via direct payment: sign permit, pay, retry."""
+        import base64
         import json
 
         result = self.pay_direct(provider, amount)
 
-        # V2: send PAYMENT-SIGNATURE header with payment proof JSON
-        payment_signature = json.dumps(
-            {
-                "settlement": "direct",
-                "tx_hash": result.tx_hash or "",
-                "status": result.status,
-            }
-        )
+        payment_payload = {
+            "x402Version": 2,
+            "accepted": accepted,
+            "payload": {"txHash": result.tx_hash or ""},
+            "extensions": {
+                "pay": {"settlement": "direct", "status": result.status},
+            },
+        }
 
         payment_headers = {
             **headers,
-            "PAYMENT-SIGNATURE": payment_signature,
+            "PAYMENT-SIGNATURE": base64.b64encode(
+                json.dumps(payment_payload).encode()
+            ).decode(),
         }
         return httpx.request(method, url, json=body, headers=payment_headers, timeout=30.0)
 
     def _settle_via_tab(
         self,
-        requirements: dict[str, Any],
         url: str,
         method: str,
         body: Any,
         headers: dict[str, str],
         provider: str,
         amount: int,
+        accepted: dict[str, Any],
     ) -> httpx.Response:
         """Settle via tab: find/open tab, charge, retry."""
+        import base64
         import json
 
-        # Look for existing open tab with this provider
         tabs = self.list_tabs()
         tab = next((t for t in tabs if t.provider == provider and t.status == "open"), None)
 
         if tab is None:
-            # Auto-open tab: 10x per-call price, minimum $5
             tab_amount = max(amount * self._X402_TAB_MULTIPLIER, self._X402_TAB_MIN)
             tab = self.open_tab(provider, tab_amount, max_charge_per_call=amount)
 
-        # Charge the tab via server
         charge_data = self._post(f"/tabs/{tab.tab_id}/charge", {"amount": amount})
 
-        # V2: send PAYMENT-SIGNATURE header with payment proof JSON
-        payment_signature = json.dumps(
-            {
-                "settlement": "tab",
-                "tab_id": tab.tab_id,
-                "charge_id": charge_data.get("charge_id", ""),
-            }
-        )
+        payment_payload = {
+            "x402Version": 2,
+            "accepted": accepted,
+            "payload": {},
+            "extensions": {
+                "pay": {
+                    "settlement": "tab",
+                    "tabId": tab.tab_id,
+                    "chargeId": charge_data.get("charge_id", ""),
+                },
+            },
+        }
 
         payment_headers = {
             **headers,
-            "PAYMENT-SIGNATURE": payment_signature,
+            "PAYMENT-SIGNATURE": base64.b64encode(
+                json.dumps(payment_payload).encode()
+            ).decode(),
         }
         return httpx.request(method, url, json=body, headers=payment_headers, timeout=30.0)
 

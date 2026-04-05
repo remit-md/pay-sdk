@@ -1,6 +1,9 @@
 """Data models for the pay SDK."""
 
+from __future__ import annotations
+
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -67,6 +70,32 @@ class StatusResponse(BaseModel):
         if self.balance_usdc is None:
             return 0
         return int(float(self.balance_usdc))
+
+
+# ── x402 V2 Wire Types ──────────────────────────────────────────
+
+
+class PaymentRequirementsV2(BaseModel):
+    """A single payment option in a v2 402 response."""
+
+    scheme: str
+    network: str
+    amount: str
+    asset: str
+    payTo: str  # camelCase to match wire format
+    maxTimeoutSeconds: int
+    extra: dict[str, Any] | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class PaymentRequired(BaseModel):
+    """Top-level v2 PAYMENT-REQUIRED header (base64-encoded)."""
+
+    x402Version: int
+    resource: dict[str, Any]
+    accepts: list[PaymentRequirementsV2]
+    extensions: dict[str, Any] = Field(default_factory=dict)
 
 
 class WebhookRegistration(BaseModel):

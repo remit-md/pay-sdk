@@ -11,6 +11,8 @@ export {
 
 export type {
   DirectPaymentResult,
+  PaymentRequired,
+  PaymentRequirementsV2,
   Tab,
   TabStatus,
   StatusResponse,

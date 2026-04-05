@@ -1,5 +1,8 @@
 """Tests for PayClient methods."""
 
+import base64
+import json
+
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -11,6 +14,35 @@ VALID_ADDR = "0x" + "a1" * 20
 PROVIDER_ADDR = "0x" + "b2" * 20
 DIRECT_CONTRACT = "0x" + "d1" * 20
 TAB_CONTRACT = "0x" + "d2" * 20
+USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+
+def _v2_payment_required(
+    amount: str, pay_to: str, settlement: str = "direct"
+) -> str:
+    """Build a base64-encoded v2 PAYMENT-REQUIRED header value."""
+    payload = {
+        "x402Version": 2,
+        "resource": {"url": "https://api.example.com/data", "mimeType": "application/json"},
+        "accepts": [
+            {
+                "scheme": "exact",
+                "network": "eip155:8453",
+                "amount": amount,
+                "asset": USDC_ADDR,
+                "payTo": pay_to,
+                "maxTimeoutSeconds": 60,
+                "extra": {
+                    "name": "USDC",
+                    "version": "2",
+                    "facilitator": "https://pay-skill.com/x402",
+                    "settlement": settlement,
+                },
+            }
+        ],
+        "extensions": {},
+    }
+    return base64.b64encode(json.dumps(payload).encode()).decode()
 
 # Dummy signer that returns 65 zero bytes
 _DUMMY_SIGNER = CallbackSigner(callback=lambda h: b"\x00" * 65)
@@ -191,18 +223,14 @@ class TestX402Request:
         assert resp.status_code == 200
 
     def test_402_direct_settlement(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
-        """402 with direct settlement — SDK pays and retries."""
+        """402 with v2 direct settlement — SDK pays and retries with base64 v2 payload."""
         mock_permit_flow(httpx_mock)
-        # First request: 402
+        # First request: 402 with v2 PAYMENT-REQUIRED header
         httpx_mock.add_response(
             url="https://api.example.com/premium",
-            json={
-                "scheme": "exact",
-                "amount": 1_000_000,
-                "to": VALID_ADDR,
-                "settlement": "direct",
-            },
+            json={},
             status_code=402,
+            headers={"payment-required": _v2_payment_required("1000000", VALID_ADDR, "direct")},
         )
         # Direct payment to server
         httpx_mock.add_response(
@@ -219,20 +247,25 @@ class TestX402Request:
         resp = client.request("https://api.example.com/premium")
         assert resp.status_code == 200
 
+        # Verify the retry request used base64-encoded v2 PAYMENT-SIGNATURE
+        retry_req = httpx_mock.get_requests()[-1]
+        sig_header = retry_req.headers.get("payment-signature")
+        assert sig_header is not None
+        decoded = json.loads(base64.b64decode(sig_header))
+        assert decoded["x402Version"] == 2
+        assert decoded["payload"]["txHash"] == "0xabc"
+        assert decoded["extensions"]["pay"]["settlement"] == "direct"
+
     def test_402_tab_settlement_with_existing_tab(
         self, client: PayClient, httpx_mock: HTTPXMock
     ) -> None:
-        """402 with tab settlement — charges existing tab."""
-        # First request: 402
+        """402 with v2 tab settlement — charges existing tab, sends v2 payload."""
+        # First request: 402 with v2 PAYMENT-REQUIRED header
         httpx_mock.add_response(
             url="https://api.example.com/metered",
-            json={
-                "scheme": "exact",
-                "amount": 100_000,
-                "to": PROVIDER_ADDR,
-                "settlement": "tab",
-            },
+            json={},
             status_code=402,
+            headers={"payment-required": _v2_payment_required("100000", PROVIDER_ADDR, "tab")},
         )
         # List tabs — returns existing open tab
         httpx_mock.add_response(
@@ -265,6 +298,62 @@ class TestX402Request:
 
         resp = client.request("https://api.example.com/metered")
         assert resp.status_code == 200
+
+        # Verify the retry request used base64-encoded v2 PAYMENT-SIGNATURE
+        retry_req = httpx_mock.get_requests()[-1]
+        sig_header = retry_req.headers.get("payment-signature")
+        assert sig_header is not None
+        decoded = json.loads(base64.b64decode(sig_header))
+        assert decoded["x402Version"] == 2
+        assert decoded["extensions"]["pay"]["settlement"] == "tab"
+        assert decoded["extensions"]["pay"]["tabId"] == "tab_existing"
+        assert decoded["extensions"]["pay"]["chargeId"] == "ch_1"
+
+    def test_402_v2_body_fallback(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        """402 with v2 requirements in body (no header) — still parses correctly."""
+        mock_permit_flow(httpx_mock)
+        httpx_mock.add_response(
+            url="https://api.example.com/premium",
+            json={
+                "x402Version": 2,
+                "resource": {"url": "https://api.example.com/premium"},
+                "accepts": [
+                    {
+                        "scheme": "exact",
+                        "network": "eip155:8453",
+                        "amount": "1000000",
+                        "asset": USDC_ADDR,
+                        "payTo": VALID_ADDR,
+                        "maxTimeoutSeconds": 60,
+                        "extra": {"settlement": "direct"},
+                    }
+                ],
+                "extensions": {},
+            },
+            status_code=402,
+        )
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/direct",
+            method="POST",
+            json={"tx_hash": "0xdef", "status": "confirmed", "amount": 1_000_000, "fee": 10_000},
+        )
+        httpx_mock.add_response(
+            url="https://api.example.com/premium",
+            json={"data": "ok"},
+        )
+
+        resp = client.request("https://api.example.com/premium")
+        assert resp.status_code == 200
+
+    def test_402_non_v2_raises(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
+        """402 with non-v2 body raises PayServerError."""
+        httpx_mock.add_response(
+            url="https://api.example.com/old",
+            json={"scheme": "exact", "amount": 1000, "to": VALID_ADDR},
+            status_code=402,
+        )
+        with pytest.raises(PayServerError, match="x402 v2"):
+            client.request("https://api.example.com/old")
 
 
 class TestFunding:

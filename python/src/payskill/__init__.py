@@ -7,7 +7,7 @@ from typing import Any
 from payskill.auth import build_auth_headers, derive_address
 from payskill.client import PayClient
 from payskill.errors import PayError, PayNetworkError, PayValidationError
-from payskill.models import DirectPaymentResult, Tab, TabStatus
+from payskill.models import DirectPaymentResult, PaymentRequired, PaymentRequirementsV2, Tab, TabStatus
 
 # OWS signer is optional — only available if open-wallet-standard is installed.
 OwsSigner: Any
@@ -22,6 +22,8 @@ __all__ = [
     "PayNetworkError",
     "PayValidationError",
     "DirectPaymentResult",
+    "PaymentRequired",
+    "PaymentRequirementsV2",
     "Tab",
     "TabStatus",
     "build_auth_headers",

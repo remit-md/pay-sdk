@@ -44,3 +44,29 @@ export interface WebhookRegistration {
   url: string;
   events: string[];
 }
+
+// ── x402 V2 Wire Types ──────────────────────────────────────────
+
+/** A single payment option in a v2 402 response. */
+export interface PaymentRequirementsV2 {
+  scheme: string;
+  network: string;
+  amount: string;
+  asset: string;
+  payTo: string;
+  maxTimeoutSeconds: number;
+  extra?: {
+    name?: string;
+    version?: string;
+    facilitator?: string;
+    settlement?: string;
+  };
+}
+
+/** Top-level v2 PAYMENT-REQUIRED header (base64-encoded). */
+export interface PaymentRequired {
+  x402Version: number;
+  resource: { url: string; description?: string; mimeType?: string };
+  accepts: PaymentRequirementsV2[];
+  extensions: Record<string, unknown>;
+}
