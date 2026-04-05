@@ -219,12 +219,25 @@ export class PayClient {
     settlement: string;
     amount: number;
     to: string;
+    accepted?: Record<string, unknown>;
   }> {
-    // V2: check PAYMENT-REQUIRED header (base64-encoded JSON)
+    // V2: decode PAYMENT-REQUIRED header (base64 -> v2 PaymentRequired)
     const prHeader = resp.headers.get("payment-required");
     if (prHeader) {
       try {
         const decoded = JSON.parse(atob(prHeader)) as Record<string, unknown>;
+        // V2 structure: {x402Version:2, accepts:[{payTo, amount, extra:{settlement}}]}
+        if (decoded.x402Version === 2 && Array.isArray(decoded.accepts)) {
+          const accept = (decoded.accepts as Record<string, unknown>[])[0];
+          const extra = (accept.extra ?? {}) as Record<string, unknown>;
+          return {
+            settlement: String(extra.settlement ?? "direct"),
+            amount: Number(accept.amount ?? 0),
+            to: String(accept.payTo ?? ""),
+            accepted: accept,
+          };
+        }
+        // Legacy flat format
         return {
           settlement: String(decoded.settlement ?? "direct"),
           amount: Number(decoded.amount ?? 0),
@@ -238,6 +251,17 @@ export class PayClient {
     // Fallback: parse from response body
     const body = (await resp.json()) as Record<string, unknown>;
     const requirements = (body.requirements ?? body) as Record<string, unknown>;
+    // Check if body is v2 format
+    if (requirements.x402Version === 2 && Array.isArray(requirements.accepts)) {
+      const accept = (requirements.accepts as Record<string, unknown>[])[0];
+      const extra = (accept.extra ?? {}) as Record<string, unknown>;
+      return {
+        settlement: String(extra.settlement ?? "direct"),
+        amount: Number(accept.amount ?? 0),
+        to: String(accept.payTo ?? ""),
+        accepted: accept,
+      };
+    }
     return {
       settlement: String(requirements.settlement ?? "direct"),
       amount: Number(requirements.amount ?? 0),
@@ -252,15 +276,15 @@ export class PayClient {
     body: string | undefined,
     headers: Record<string, string>
   ): Promise<Response> {
-    const { settlement, amount, provider } = await (async () => {
+    const { settlement, amount, provider, accepted } = await (async () => {
       const r = await this.parse402Requirements(resp);
-      return { settlement: r.settlement, amount: r.amount, provider: r.to };
+      return { settlement: r.settlement, amount: r.amount, provider: r.to, accepted: r.accepted };
     })();
 
     if (settlement === "tab") {
-      return this.settleViaTab(url, method, body, headers, provider, amount);
+      return this.settleViaTab(url, method, body, headers, provider, amount, accepted);
     }
-    return this.settleViaDirect(url, method, body, headers, provider, amount);
+    return this.settleViaDirect(url, method, body, headers, provider, amount, accepted);
   }
 
   private async settleViaDirect(
@@ -269,7 +293,8 @@ export class PayClient {
     body: string | undefined,
     headers: Record<string, string>,
     provider: string,
-    amount: number
+    amount: number,
+    accepted?: Record<string, unknown>
   ): Promise<Response> {
     const result = await this.payDirect(provider, amount);
     // Server returns snake_case (tx_hash) but TS model uses camelCase (txHash).
@@ -278,19 +303,22 @@ export class PayClient {
       (result as unknown as { tx_hash?: string }).tx_hash ??
       "";
 
-    // V2: send PAYMENT-SIGNATURE header with payment proof JSON
-    const paymentSignature = JSON.stringify({
-      settlement: "direct",
-      tx_hash: txHash,
-      status: result.status,
-    });
+    // V2: base64-encoded PaymentPayload
+    const paymentPayload = {
+      x402Version: 2,
+      accepted: accepted ?? {},
+      payload: { txHash },
+      extensions: {
+        pay: { settlement: "direct", status: result.status },
+      },
+    };
 
     return fetch(url, {
       method,
       body,
       headers: {
         ...headers,
-        "PAYMENT-SIGNATURE": paymentSignature,
+        "PAYMENT-SIGNATURE": btoa(JSON.stringify(paymentPayload)),
       },
     });
   }
@@ -301,7 +329,8 @@ export class PayClient {
     body: string | undefined,
     headers: Record<string, string>,
     provider: string,
-    amount: number
+    amount: number,
+    accepted?: Record<string, unknown>
   ): Promise<Response> {
     const tabs = await this.listTabs();
     let tab = tabs.find((t) => t.provider === provider && t.status === "open");
@@ -321,19 +350,26 @@ export class PayClient {
       { amount }
     );
 
-    // V2: send PAYMENT-SIGNATURE header with payment proof JSON
-    const paymentSignature = JSON.stringify({
-      settlement: "tab",
-      tab_id: tab.tabId,
-      charge_id: chargeData.chargeId ?? "",
-    });
+    // V2: base64-encoded PaymentPayload
+    const paymentPayload = {
+      x402Version: 2,
+      accepted: accepted ?? {},
+      payload: {},
+      extensions: {
+        pay: {
+          settlement: "tab",
+          tabId: tab.tabId,
+          chargeId: chargeData.chargeId ?? "",
+        },
+      },
+    };
 
     return fetch(url, {
       method,
       body,
       headers: {
         ...headers,
-        "PAYMENT-SIGNATURE": paymentSignature,
+        "PAYMENT-SIGNATURE": btoa(JSON.stringify(paymentPayload)),
       },
     });
   }
