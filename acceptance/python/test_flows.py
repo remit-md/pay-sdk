@@ -211,35 +211,52 @@ class TestX402Request:
         wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
 
     def test_request_handles_402_direct(self):
-        """SDK request() sees 402 with PAYMENT-REQUIRED header, pays via payDirect, retries with PAYMENT-SIGNATURE."""
+        """SDK request() sees V2 402 with PAYMENT-REQUIRED header, pays, retries with base64 V2 PAYMENT-SIGNATURE."""
         import base64
         import json
         import threading
         from http.server import HTTPServer, BaseHTTPRequestHandler
 
         provider_addr = self.provider_addr
+        received_sigs = []
 
         class X402Handler(BaseHTTPRequestHandler):
             def do_GET(self):
-                # V2: check PAYMENT-SIGNATURE header
+                # V2: check PAYMENT-SIGNATURE header (base64-encoded V2 PaymentPayload)
                 sig = self.headers.get("PAYMENT-SIGNATURE", "")
                 if sig:
+                    received_sigs.append(sig)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(b'{"content":"paid"}')
                 else:
-                    # V2: return PAYMENT-REQUIRED header (base64-encoded JSON)
-                    requirements = {
-                        "scheme": "exact",
-                        "amount": 1_000_000,
-                        "to": provider_addr,
-                        "settlement": "direct",
-                        "facilitator": "https://testnet.pay-skill.com/x402",
-                        "maxChargePerCall": 1_000_000,
-                        "network": "eip155:84532",
+                    # V2: return PAYMENT-REQUIRED header (base64-encoded V2 PaymentRequired)
+                    payment_required = {
+                        "x402Version": 2,
+                        "resource": {
+                            "url": "/content",
+                            "mimeType": "application/json",
+                        },
+                        "accepts": [
+                            {
+                                "scheme": "exact",
+                                "network": "eip155:84532",
+                                "amount": "1000000",
+                                "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+                                "payTo": provider_addr,
+                                "maxTimeoutSeconds": 60,
+                                "extra": {
+                                    "settlement": "direct",
+                                    "facilitator": "https://testnet.pay-skill.com/x402",
+                                    "name": "USDC",
+                                    "version": "2",
+                                },
+                            }
+                        ],
+                        "extensions": {},
                     }
-                    req_b64 = base64.b64encode(json.dumps(requirements).encode()).decode()
+                    req_b64 = base64.b64encode(json.dumps(payment_required).encode()).decode()
                     self.send_response(402)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("payment-required", req_b64)
@@ -247,7 +264,7 @@ class TestX402Request:
                     body = json.dumps({
                         "error": "payment_required",
                         "message": "This resource requires payment",
-                        "requirements": requirements,
+                        "requirements": payment_required,
                     })
                     self.wfile.write(body.encode())
 
@@ -271,6 +288,13 @@ class TestX402Request:
             assert resp.status_code == 200, f"expected 200, got {resp.status_code}"
             data = resp.json()
             assert data["content"] == "paid"
+
+            # Verify PAYMENT-SIGNATURE was base64-encoded V2 PaymentPayload
+            assert len(received_sigs) > 0, "should have received PAYMENT-SIGNATURE header"
+            decoded = json.loads(base64.b64decode(received_sigs[0]).decode())
+            assert decoded["x402Version"] == 2, "PaymentPayload should have x402Version:2"
+            assert "accepted" in decoded, "PaymentPayload should have accepted field"
+            assert "extensions" in decoded, "PaymentPayload should have extensions field"
         finally:
             server.shutdown()
 
