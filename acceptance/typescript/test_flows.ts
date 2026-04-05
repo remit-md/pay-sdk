@@ -251,27 +251,45 @@ describe("SDK Acceptance — TypeScript", () => {
   });
 
   describe("x402 Request V2 (direct settlement)", () => {
-    it("handles 402 with PAYMENT-REQUIRED header and pays automatically", async () => {
-      // Inline mini x402 V2 server
+    it("handles 402 with V2 PAYMENT-REQUIRED header and pays automatically", async () => {
+      // Inline mini x402 V2 server — validates full v2 wire format
       const { createServer } = await import("node:http");
+      let receivedPaymentSig: string | null = null;
+
       const server = createServer((req, res) => {
-        // V2: check PAYMENT-SIGNATURE header
+        // V2: check PAYMENT-SIGNATURE header (base64-encoded V2 PaymentPayload)
         const sig = req.headers["payment-signature"];
         if (sig && typeof sig === "string" && sig.length > 0) {
+          receivedPaymentSig = sig;
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ content: "paid" }));
         } else {
-          // V2: return PAYMENT-REQUIRED header (base64-encoded JSON)
-          const requirements = {
-            scheme: "exact",
-            amount: 1_000_000,
-            to: providerWallet.address,
-            settlement: "direct",
-            facilitator: "https://testnet.pay-skill.com/x402",
-            maxChargePerCall: 1_000_000,
-            network: "eip155:84532",
+          // V2: return PAYMENT-REQUIRED header (base64-encoded V2 PaymentRequired)
+          const paymentRequired = {
+            x402Version: 2,
+            resource: {
+              url: "/content",
+              mimeType: "application/json",
+            },
+            accepts: [
+              {
+                scheme: "exact",
+                network: "eip155:84532",
+                amount: "1000000",
+                asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+                payTo: providerWallet.address,
+                maxTimeoutSeconds: 60,
+                extra: {
+                  settlement: "direct",
+                  facilitator: "https://testnet.pay-skill.com/x402",
+                  name: "USDC",
+                  version: "2",
+                },
+              },
+            ],
+            extensions: {},
           };
-          const reqB64 = Buffer.from(JSON.stringify(requirements)).toString("base64");
+          const reqB64 = Buffer.from(JSON.stringify(paymentRequired)).toString("base64");
           res.writeHead(402, {
             "Content-Type": "application/json",
             "payment-required": reqB64,
@@ -280,7 +298,7 @@ describe("SDK Acceptance — TypeScript", () => {
             JSON.stringify({
               error: "payment_required",
               message: "This resource requires payment",
-              requirements,
+              requirements: paymentRequired,
             }),
           );
         }
@@ -300,6 +318,15 @@ describe("SDK Acceptance — TypeScript", () => {
         assert.equal(resp.status, 200, "should get 200 after payment");
         const body = (await resp.json()) as { content: string };
         assert.equal(body.content, "paid");
+
+        // Verify PAYMENT-SIGNATURE was base64-encoded V2 PaymentPayload
+        assert.ok(receivedPaymentSig, "should have received PAYMENT-SIGNATURE header");
+        const decoded = JSON.parse(
+          Buffer.from(receivedPaymentSig!, "base64").toString("utf-8"),
+        ) as Record<string, unknown>;
+        assert.equal(decoded.x402Version, 2, "PaymentPayload should have x402Version:2");
+        assert.ok(decoded.accepted, "PaymentPayload should have accepted field");
+        assert.ok(decoded.extensions, "PaymentPayload should have extensions field");
       } finally {
         server.close();
       }
