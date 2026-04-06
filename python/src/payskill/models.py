@@ -41,6 +41,9 @@ class Tab(BaseModel):
     total_withdrawn: int = Field(default=0, description="Total withdrawn so far")
     status: str = "open"
     auto_close_after: str | None = None
+    pending_charge_count: int = Field(default=0, description="Charges buffered awaiting batch settlement")
+    pending_charge_total: int = Field(default=0, description="Total pending charge amount in USDC micro-units")
+    effective_balance: int = Field(default=0, description="balance_remaining minus pending charges")
 
     @property
     def effective_tab_id(self) -> str:

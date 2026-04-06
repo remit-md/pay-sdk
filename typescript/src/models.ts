@@ -28,6 +28,12 @@ export interface Tab {
   /** Total withdrawn so far in USDC micro-units. */
   totalWithdrawn: number;
   status: TabStatus;
+  /** Number of charges buffered awaiting batch settlement. */
+  pendingChargeCount: number;
+  /** Total amount of pending charges in USDC micro-units. */
+  pendingChargeTotal: number;
+  /** balance_remaining minus pending charges — the true available balance. */
+  effectiveBalance: number;
 }
 
 /** Wallet status. */
