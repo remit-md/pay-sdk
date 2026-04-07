@@ -411,12 +411,12 @@ export class PayClient {
     if (options?.settlement) params.set("settlement", options.settlement);
 
     const qs = params.toString();
-    const url = `${this._apiUrl}/discover${qs ? `?${qs}` : ""}`;
+    const url = `${this.apiUrl}/discover${qs ? `?${qs}` : ""}`;
     const resp = await fetch(url);
 
     if (!resp.ok) {
       const body = await resp.text().catch(() => "");
-      throw new PayServerError(resp.status, `discover failed: ${body}`);
+      throw new PayServerError(`discover failed: ${body}`, resp.status);
     }
 
     const data = (await resp.json()) as { services: DiscoverService[] };

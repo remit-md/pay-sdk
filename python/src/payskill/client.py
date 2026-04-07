@@ -406,9 +406,9 @@ class PayClient:
 
         resp = self._http.get(f"{self._api_url}/discover", params=params)
         if resp.status_code >= 400:
-            raise PayServerError(resp.status_code, resp.text)
-        data = resp.json()
-        return data.get("services", [])
+            raise PayServerError(f"discover failed: {resp.text}", resp.status_code)
+        data: dict[str, Any] = resp.json()
+        return list(data.get("services", []))
 
     # ── Auth headers ────────────────────────────────────────────────
 
