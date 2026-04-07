@@ -50,13 +50,9 @@ export interface DiscoverService {
   description: string;
   /** Public base URL for pay request (e.g. "https://weather.example.com"). */
   baseUrl: string;
-  domain: string;
-  providerAddress: string;
-  keywords: string[];
   category: string;
-  website?: string;
-  routes: { path: string; method?: string; price?: string; settlement: string }[];
-  settlementMode: string;
+  keywords: string[];
+  routes: { path: string; method?: string; price?: string; settlement?: string; free?: boolean }[];
 }
 
 /** Options for discover search. */
