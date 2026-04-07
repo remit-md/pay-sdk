@@ -53,6 +53,8 @@ export interface DiscoverService {
   category: string;
   keywords: string[];
   routes: { path: string; method?: string; price?: string; settlement?: string; free?: boolean }[];
+  /** URL to API documentation (OpenAPI spec, docs page, etc). */
+  docsUrl?: string;
 }
 
 /** Options for discover search. */
