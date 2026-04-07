@@ -46,16 +46,17 @@ export interface StatusResponse {
 
 /** Discoverable service from the facilitator catalog. */
 export interface DiscoverService {
-  domain: string;
-  providerAddress: string;
   name: string;
   description: string;
+  /** Public base URL for pay request (e.g. "https://weather.example.com"). */
+  baseUrl: string;
+  domain: string;
+  providerAddress: string;
   keywords: string[];
   category: string;
   website?: string;
   routes: { path: string; method?: string; price?: string; settlement: string }[];
   settlementMode: string;
-  dailyCalls: number;
 }
 
 /** Options for discover search. */
