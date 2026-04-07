@@ -172,11 +172,6 @@ class PayClient:
         data = self._post(f"/tabs/{tab_id}/close", {})
         return Tab.model_validate(data)
 
-    def withdraw_tab(self, tab_id: str) -> Tab:
-        """Withdraw accumulated charges from an open tab (provider-only)."""
-        data = self._post(f"/tabs/{tab_id}/withdraw", {})
-        return Tab.model_validate(data)
-
     def top_up_tab(self, tab_id: str, amount: int) -> Tab:
         """Add funds to an open tab."""
         _validate_amount(amount, 1, field="amount")
