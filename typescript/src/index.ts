@@ -11,6 +11,8 @@ export {
 
 export type {
   DirectPaymentResult,
+  DiscoverOptions,
+  DiscoverService,
   Tab,
   TabStatus,
   StatusResponse,

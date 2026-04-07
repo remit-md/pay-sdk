@@ -4,6 +4,8 @@
 
 import type {
   DirectPaymentResult,
+  DiscoverOptions,
+  DiscoverService,
   StatusResponse,
   Tab,
   WebhookRegistration,
@@ -396,6 +398,29 @@ export class PayClient {
       agent_name: options?.agentName,
     });
     return data.url;
+  }
+
+  // ── Discovery ──────────────────────────────────────────────────
+
+  /** Search for discoverable paid API services. Public, no auth required. */
+  async discover(options?: DiscoverOptions): Promise<DiscoverService[]> {
+    const params = new URLSearchParams();
+    if (options?.query) params.set("q", options.query);
+    if (options?.sort) params.set("sort", options.sort);
+    if (options?.category) params.set("category", options.category);
+    if (options?.settlement) params.set("settlement", options.settlement);
+
+    const qs = params.toString();
+    const url = `${this._apiUrl}/discover${qs ? `?${qs}` : ""}`;
+    const resp = await fetch(url);
+
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      throw new PayServerError(resp.status, `discover failed: ${body}`);
+    }
+
+    const data = (await resp.json()) as { services: DiscoverService[] };
+    return data.services;
   }
 
   // ── Permit signing ────────────────────────────────────────────

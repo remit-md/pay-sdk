@@ -386,6 +386,30 @@ class PayClient:
         data = self._post("/links/withdraw", {"messages": messages or [], "agent_name": agent_name})
         return str(data["url"])
 
+    # ── Discovery ──────────────────────────────────────────────────
+
+    def discover(
+        self,
+        query: str | None = None,
+        sort: str = "volume",
+        category: str | None = None,
+        settlement: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search for discoverable paid API services. Public, no auth required."""
+        params: dict[str, str] = {"sort": sort}
+        if query:
+            params["q"] = query
+        if category:
+            params["category"] = category
+        if settlement:
+            params["settlement"] = settlement
+
+        resp = self._http.get(f"{self._api_url}/discover", params=params)
+        if resp.status_code >= 400:
+            raise PayServerError(resp.status_code, resp.text)
+        data = resp.json()
+        return data.get("services", [])
+
     # ── Auth headers ────────────────────────────────────────────────
 
     def _auth_headers(self, method: str, path: str) -> dict[str, str]:

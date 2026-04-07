@@ -44,6 +44,32 @@ export interface StatusResponse {
   openTabs: Tab[];
 }
 
+/** Discoverable service from the facilitator catalog. */
+export interface DiscoverService {
+  domain: string;
+  providerAddress: string;
+  name: string;
+  description: string;
+  keywords: string[];
+  category: string;
+  website?: string;
+  routes: { path: string; method?: string; price?: string; settlement: string }[];
+  settlementMode: string;
+  dailyCalls: number;
+}
+
+/** Options for discover search. */
+export interface DiscoverOptions {
+  /** Search query (matches keywords and description). */
+  query?: string;
+  /** Sort order: "volume" (default), "newest", "price_asc", "price_desc". */
+  sort?: string;
+  /** Filter by category. */
+  category?: string;
+  /** Filter by settlement mode: "direct" or "tab". */
+  settlement?: string;
+}
+
 /** Registered webhook. */
 export interface WebhookRegistration {
   webhookId: string;
