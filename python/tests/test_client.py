@@ -152,10 +152,10 @@ class TestWebhooks:
             json={
                 "id": "wh_123",
                 "url": "https://example.com/hook",
-                "events": ["tab.charged"],
+                "events": ["tab.opened"],
             },
         )
-        wh = client.register_webhook("https://example.com/hook", events=["tab.charged"])
+        wh = client.register_webhook("https://example.com/hook", events=["tab.opened"])
         assert wh.webhook_id == "wh_123"
 
 

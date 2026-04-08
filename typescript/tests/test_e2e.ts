@@ -108,13 +108,13 @@ describe("E2E: Webhook CRUD with real auth", { skip }, () => {
     const wh = await client.registerWebhook(
       `https://example.com/hook/${slug}`,
       {
-        events: ["tab.charged", "payment.completed"],
+        events: ["payment.completed"],
         secret: `whsec_test_${slug}`,
       }
     );
     assert.ok(wh.webhookId);
     assert.ok(wh.url.startsWith("https://"));
-    assert.ok(wh.events.includes("tab.charged"));
+    assert.ok(wh.events.includes("payment.completed"));
     whId = wh.webhookId;
   });
 

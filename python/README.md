@@ -96,7 +96,7 @@ status = client.get_status()
 ### Webhooks
 
 ```python
-wh = client.register_webhook(url, events=["tab.charged"], secret="whsec_...")
+wh = client.register_webhook(url, events=["tab.opened"], secret="whsec_...")
 webhooks = client.list_webhooks()
 client.delete_webhook(webhook_id)
 ```
