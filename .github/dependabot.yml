@@ -1,32 +1,55 @@
 version: 2
 updates:
-  # TypeScript SDK — watch OWS peer dependency
   - package-ecosystem: "npm"
     directory: "/typescript"
     schedule:
       interval: "weekly"
+      day: "monday"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
-    allow:
-      - dependency-name: "@open-wallet-standard/core"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
-  # OWS policy package
   - package-ecosystem: "npm"
     directory: "/ows-policy"
     schedule:
       interval: "weekly"
+      day: "monday"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
-  # Python SDK — watch OWS optional dependency
   - package-ecosystem: "pip"
     directory: "/python"
     schedule:
       interval: "weekly"
+      day: "monday"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
-    allow:
-      - dependency-name: "open-wallet-standard"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+    groups:
+      actions:
+        patterns:
+          - "*"
