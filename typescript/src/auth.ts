@@ -153,13 +153,13 @@ export function computeEip712Hash(
 
   const domainSeparator = keccak256(
     encodePacked(
-      ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+      ["bytes32", "bytes32", "bytes32", "uint256", "bytes32"],
       [
         domainTypehash,
         nameHash,
         versionHash,
         BigInt(chainId),
-        verifyingContract,
+        ("0x000000000000000000000000" + verifyingContract.slice(2)) as Hex,
       ]
     )
   );

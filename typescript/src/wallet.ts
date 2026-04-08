@@ -140,9 +140,9 @@ export class Wallet {
       amount: number;
     };
 
-    // Sign the pre-computed hash locally
-    const signature = await this._account.signMessage({
-      message: { raw: prep.hash as `0x${string}` },
+    // Sign the pre-computed EIP-712 hash locally (raw ECDSA, no EIP-191 prefix)
+    const signature = await this._account.sign({
+      hash: prep.hash as `0x${string}`,
     });
 
     // Parse 65-byte signature into v, r, s

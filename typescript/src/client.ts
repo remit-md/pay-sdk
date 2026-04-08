@@ -24,7 +24,11 @@ import {
   type AuthHeaders,
 } from "./auth.js";
 import type { Hex, Address } from "viem";
-import { sign as viemSign, serializeSignature } from "viem/accounts";
+import { sign as viemSign, serializeSignature, privateKeyToAccount } from "viem/accounts";
+import {
+  signTransferAuthorization,
+  combinedSignature,
+} from "./eip3009.js";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const DIRECT_MIN = 1_000_000; // $1.00 USDC
@@ -79,6 +83,8 @@ export class PayClient {
   private readonly signer: Signer;
   private readonly _privateKey: Hex | null;
   private readonly _authConfig: AuthConfig | null;
+  private readonly _chainId: number;
+  private readonly _address: string;
 
   constructor(options: PayClientOptions = {}) {
     this.apiUrl = (options.apiUrl ?? DEFAULT_API_URL).replace(/\/+$/, "");
@@ -105,6 +111,11 @@ export class PayClient {
           : "0x" + options.privateKey) as Hex)
       : null;
 
+    this._chainId = options.chainId ?? 8453;
+    this._address = this._privateKey
+      ? privateKeyToAccount(this._privateKey).address
+      : (options.signerOptions?.address ?? "");
+
     // Auth config for EIP-712 domain
     if (options.chainId && options.routerAddress) {
       this._authConfig = {
@@ -114,6 +125,10 @@ export class PayClient {
     } else {
       this._authConfig = null;
     }
+  }
+
+  private async getContracts(): Promise<{ router: string; tab: string; direct: string; usdc: string; chain_id: number }> {
+    return this.get("/contracts");
   }
 
   // ── Direct Payment ──────────────────────────────────────────────
@@ -217,17 +232,14 @@ export class PayClient {
     settlement: string;
     amount: number;
     to: string;
+    accepted?: Record<string, unknown>;
   }> {
-    // V2: check PAYMENT-REQUIRED header (base64-encoded JSON)
+    // Try PAYMENT-REQUIRED header (base64-encoded JSON)
     const prHeader = resp.headers.get("payment-required");
     if (prHeader) {
       try {
         const decoded = JSON.parse(atob(prHeader)) as Record<string, unknown>;
-        return {
-          settlement: String(decoded.settlement ?? "direct"),
-          amount: Number(decoded.amount ?? 0),
-          to: String(decoded.to ?? ""),
-        };
+        return PayClient.extractRequirements(decoded);
       } catch {
         // Fall through to body parsing
       }
@@ -236,10 +248,33 @@ export class PayClient {
     // Fallback: parse from response body
     const body = (await resp.json()) as Record<string, unknown>;
     const requirements = (body.requirements ?? body) as Record<string, unknown>;
+    return PayClient.extractRequirements(requirements);
+  }
+
+  private static extractRequirements(obj: Record<string, unknown>): {
+    settlement: string;
+    amount: number;
+    to: string;
+    accepted?: Record<string, unknown>;
+  } {
+    // x402 v2 format: { accepts: [{ payTo, amount, extra: { settlement } }] }
+    const accepts = obj.accepts as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(accepts) && accepts.length > 0) {
+      const offer = accepts[0];
+      const extra = (offer.extra ?? {}) as Record<string, unknown>;
+      return {
+        settlement: String(extra.settlement ?? "direct"),
+        amount: Number(offer.amount ?? 0),
+        to: String(offer.payTo ?? ""),
+        accepted: offer,
+      };
+    }
+
+    // Legacy v1 format
     return {
-      settlement: String(requirements.settlement ?? "direct"),
-      amount: Number(requirements.amount ?? 0),
-      to: String(requirements.to ?? ""),
+      settlement: String(obj.settlement ?? "direct"),
+      amount: Number(obj.amount ?? 0),
+      to: String(obj.to ?? ""),
     };
   }
 
@@ -250,15 +285,12 @@ export class PayClient {
     body: string | undefined,
     headers: Record<string, string>
   ): Promise<Response> {
-    const { settlement, amount, provider } = await (async () => {
-      const r = await this.parse402Requirements(resp);
-      return { settlement: r.settlement, amount: r.amount, provider: r.to };
-    })();
+    const reqs = await this.parse402Requirements(resp);
 
-    if (settlement === "tab") {
-      return this.settleViaTab(url, method, body, headers, provider, amount);
+    if (reqs.settlement === "tab") {
+      return this.settleViaTab(url, method, body, headers, reqs);
     }
-    return this.settleViaDirect(url, method, body, headers, provider, amount);
+    return this.settleViaDirect(url, method, body, headers, reqs);
   }
 
   private async settleViaDirect(
@@ -266,29 +298,50 @@ export class PayClient {
     method: string,
     body: string | undefined,
     headers: Record<string, string>,
-    provider: string,
-    amount: number
+    reqs: { settlement: string; amount: number; to: string; accepted?: Record<string, unknown> },
   ): Promise<Response> {
-    const result = await this.payDirect(provider, amount);
-    // Server returns snake_case (tx_hash) but TS model uses camelCase (txHash).
-    const txHash =
-      result.txHash ??
-      (result as unknown as { tx_hash?: string }).tx_hash ??
-      "";
+    if (!this._privateKey) {
+      throw new PayValidationError("privateKey required for x402 direct settlement", "privateKey");
+    }
 
-    // V2: send PAYMENT-SIGNATURE header with payment proof JSON
-    const paymentSignature = JSON.stringify({
-      settlement: "direct",
-      tx_hash: txHash,
-      status: result.status,
-    });
+    const contracts = await this.getContracts();
+    const auth = await signTransferAuthorization(
+      this._privateKey,
+      reqs.to as Address,
+      reqs.amount,
+      this._chainId,
+      contracts.usdc as Address,
+    );
+
+    const paymentPayload = {
+      x402Version: 2,
+      accepted: reqs.accepted ?? {
+        scheme: "exact",
+        network: `eip155:${this._chainId}`,
+        amount: String(reqs.amount),
+        payTo: reqs.to,
+      },
+      payload: {
+        signature: combinedSignature(auth),
+        authorization: {
+          from: auth.from,
+          to: auth.to,
+          value: String(reqs.amount),
+          validAfter: "0",
+          validBefore: "0",
+          nonce: auth.nonce,
+        },
+      },
+      extensions: {},
+    };
 
     return fetch(url, {
       method,
       body,
       headers: {
         ...headers,
-        "PAYMENT-SIGNATURE": paymentSignature,
+        "Content-Type": "application/json",
+        "PAYMENT-SIGNATURE": btoa(JSON.stringify(paymentPayload)),
       },
     });
   }
@@ -298,40 +351,53 @@ export class PayClient {
     method: string,
     body: string | undefined,
     headers: Record<string, string>,
-    provider: string,
-    amount: number
+    reqs: { settlement: string; amount: number; to: string; accepted?: Record<string, unknown> },
   ): Promise<Response> {
     const tabs = await this.listTabs();
-    let tab = tabs.find((t) => t.provider === provider && t.status === "open");
+    let tab = tabs.find((t) => t.provider === reqs.to && t.status === "open");
 
     if (!tab) {
       const tabAmount = Math.max(
-        amount * PayClient.X402_TAB_MULTIPLIER,
+        reqs.amount * PayClient.X402_TAB_MULTIPLIER,
         TAB_MIN
       );
-      tab = await this.openTab(provider, tabAmount, {
-        maxChargePerCall: amount,
+      tab = await this.openTab(reqs.to, tabAmount, {
+        maxChargePerCall: reqs.amount,
       });
     }
 
-    const chargeData = await this.post<{ chargeId: string }>(
+    const chargeData = await this.post<{ charge_id: string }>(
       `/tabs/${tab.tabId}/charge`,
-      { amount }
+      { amount: reqs.amount }
     );
 
-    // V2: send PAYMENT-SIGNATURE header with payment proof JSON
-    const paymentSignature = JSON.stringify({
-      settlement: "tab",
-      tab_id: tab.tabId,
-      charge_id: chargeData.chargeId ?? "",
-    });
+    const paymentPayload = {
+      x402Version: 2,
+      accepted: reqs.accepted ?? {
+        scheme: "exact",
+        network: `eip155:${this._chainId}`,
+        amount: String(reqs.amount),
+        payTo: reqs.to,
+      },
+      payload: {
+        authorization: { from: this._address },
+      },
+      extensions: {
+        pay: {
+          settlement: "tab",
+          tabId: tab.tabId,
+          chargeId: chargeData.charge_id ?? "",
+        },
+      },
+    };
 
     return fetch(url, {
       method,
       body,
       headers: {
         ...headers,
-        "PAYMENT-SIGNATURE": paymentSignature,
+        "Content-Type": "application/json",
+        "PAYMENT-SIGNATURE": btoa(JSON.stringify(paymentPayload)),
       },
     });
   }
