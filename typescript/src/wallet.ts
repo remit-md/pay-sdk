@@ -255,9 +255,12 @@ export class Wallet {
     let permit: PermitResult | undefined;
 
     if (typeof providerOrOpts === "string") {
+      if (amount === undefined || maxChargePerCall === undefined) {
+        throw new Error("amount and maxChargePerCall are required when provider is a string");
+      }
       provider = providerOrOpts;
-      amt = amount!;
-      maxCharge = maxChargePerCall!;
+      amt = amount;
+      maxCharge = maxChargePerCall;
       permit = options?.permit;
     } else {
       provider = providerOrOpts.to;
