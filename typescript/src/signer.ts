@@ -72,10 +72,8 @@ export class RawKeySigner implements Signer {
     this.address = account.address;
   }
 
-  sign(hash: Uint8Array): Uint8Array {
+  sign(_hash: Uint8Array): Uint8Array {
     // viem's sign() does raw ECDSA signing (no EIP-191 prefix)
-    const hashHex = ("0x" + Buffer.from(hash).toString("hex")) as Hex;
-
     // sign() is async but Signer interface is sync — we use the sync internal
     // For the sync interface, we need a workaround. Since RawKeySigner is
     // dev/testing only, we'll do a sync computation via signSync.

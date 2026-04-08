@@ -11,6 +11,10 @@ VALID_ADDR = "0x" + "a1" * 20
 PROVIDER_ADDR = "0x" + "b2" * 20
 DIRECT_CONTRACT = "0x" + "d1" * 20
 TAB_CONTRACT = "0x" + "d2" * 20
+USDC_ADDR = "0x" + "cc" * 20
+
+# Deterministic test private key (DO NOT use in production)
+_TEST_PRIVATE_KEY = "0x" + "ab" * 32
 
 # Dummy signer that returns 65 zero bytes
 _DUMMY_SIGNER = CallbackSigner(callback=lambda h: b"\x00" * 65)
@@ -19,6 +23,12 @@ _DUMMY_SIGNER = CallbackSigner(callback=lambda h: b"\x00" * 65)
 @pytest.fixture()
 def client() -> PayClient:
     return PayClient(api_url=DEFAULT_API_URL, signer=_DUMMY_SIGNER)
+
+
+@pytest.fixture()
+def keyed_client() -> PayClient:
+    """Client with a private_key, needed for direct x402 (EIP-3009) settlement."""
+    return PayClient(api_url=DEFAULT_API_URL, private_key=_TEST_PRIVATE_KEY)
 
 
 def mock_permit_flow(httpx_mock: HTTPXMock) -> None:
@@ -156,9 +166,20 @@ class TestX402Request:
         resp = client.request("https://api.example.com/data")
         assert resp.status_code == 200
 
-    def test_402_direct_settlement(self, client: PayClient, httpx_mock: HTTPXMock) -> None:
-        """402 with direct settlement — SDK pays and retries."""
-        mock_permit_flow(httpx_mock)
+    def test_402_direct_settlement(self, keyed_client: PayClient, httpx_mock: HTTPXMock) -> None:
+        """402 with direct settlement — SDK signs EIP-3009 locally and retries."""
+        # /contracts needed to get chain_id + usdc address
+        httpx_mock.add_response(
+            url=f"{DEFAULT_API_URL}/contracts",
+            method="GET",
+            json={
+                "router": "0x" + "00" * 20,
+                "tab": TAB_CONTRACT,
+                "direct": DIRECT_CONTRACT,
+                "usdc": USDC_ADDR,
+                "chain_id": 84532,
+            },
+        )
         # First request: 402
         httpx_mock.add_response(
             url="https://api.example.com/premium",
@@ -170,19 +191,13 @@ class TestX402Request:
             },
             status_code=402,
         )
-        # Direct payment to server
-        httpx_mock.add_response(
-            url=f"{DEFAULT_API_URL}/direct",
-            method="POST",
-            json={"tx_hash": "0xabc", "status": "confirmed", "amount": 1_000_000, "fee": 10_000},
-        )
-        # Retry after payment: 200
+        # Retry after EIP-3009 signing: 200
         httpx_mock.add_response(
             url="https://api.example.com/premium",
             json={"data": "premium content"},
         )
 
-        resp = client.request("https://api.example.com/premium")
+        resp = keyed_client.request("https://api.example.com/premium")
         assert resp.status_code == 200
 
     def test_402_tab_settlement_with_existing_tab(

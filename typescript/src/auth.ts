@@ -17,7 +17,7 @@
  *   APIRequest(string method, string path, uint256 timestamp, bytes32 nonce)
  */
 
-import { type Hex, keccak256, encodePacked, toHex, type Address } from "viem";
+import { type Hex, keccak256, encodePacked, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { randomBytes } from "node:crypto";
 
