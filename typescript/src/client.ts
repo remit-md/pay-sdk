@@ -218,16 +218,12 @@ export class PayClient {
     amount: number;
     to: string;
   }> {
-    // V2: check PAYMENT-REQUIRED header (base64-encoded JSON)
+    // Try PAYMENT-REQUIRED header (base64-encoded JSON)
     const prHeader = resp.headers.get("payment-required");
     if (prHeader) {
       try {
         const decoded = JSON.parse(atob(prHeader)) as Record<string, unknown>;
-        return {
-          settlement: String(decoded.settlement ?? "direct"),
-          amount: Number(decoded.amount ?? 0),
-          to: String(decoded.to ?? ""),
-        };
+        return PayClient.extractRequirements(decoded);
       } catch {
         // Fall through to body parsing
       }
@@ -236,10 +232,31 @@ export class PayClient {
     // Fallback: parse from response body
     const body = (await resp.json()) as Record<string, unknown>;
     const requirements = (body.requirements ?? body) as Record<string, unknown>;
+    return PayClient.extractRequirements(requirements);
+  }
+
+  private static extractRequirements(obj: Record<string, unknown>): {
+    settlement: string;
+    amount: number;
+    to: string;
+  } {
+    // x402 v2 format: { accepts: [{ payTo, amount, extra: { settlement } }] }
+    const accepts = obj.accepts as Array<Record<string, unknown>> | undefined;
+    if (Array.isArray(accepts) && accepts.length > 0) {
+      const offer = accepts[0];
+      const extra = (offer.extra ?? {}) as Record<string, unknown>;
+      return {
+        settlement: String(extra.settlement ?? "direct"),
+        amount: Number(offer.amount ?? 0),
+        to: String(offer.payTo ?? ""),
+      };
+    }
+
+    // Legacy v1 format
     return {
-      settlement: String(requirements.settlement ?? "direct"),
-      amount: Number(requirements.amount ?? 0),
-      to: String(requirements.to ?? ""),
+      settlement: String(obj.settlement ?? "direct"),
+      amount: Number(obj.amount ?? 0),
+      to: String(obj.to ?? ""),
     };
   }
 
