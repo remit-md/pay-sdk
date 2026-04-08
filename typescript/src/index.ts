@@ -43,3 +43,9 @@ export {
   computeEip712Hash,
 } from "./auth.js";
 export type { AuthConfig, AuthHeaders } from "./auth.js";
+
+export {
+  signTransferAuthorization,
+  combinedSignature,
+} from "./eip3009.js";
+export type { TransferAuthorization } from "./eip3009.js";
