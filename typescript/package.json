@@ -18,7 +18,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "viem": "^2.0.0"
+    "viem": "^2.47.10"
   },
   "peerDependencies": {
     "@open-wallet-standard/core": ">=1.2.0"
@@ -35,7 +35,7 @@
     "globals": "^17.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
-    "typescript-eslint": "^8.0.0"
+    "typescript-eslint": "^8.58.1"
   },
   "engines": {
     "node": ">=20.0.0"
