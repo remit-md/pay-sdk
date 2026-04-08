@@ -202,7 +202,7 @@ describe("SDK Acceptance — TypeScript", () => {
       // Register
       const reg = await agentWallet.registerWebhook(
         hookUrl,
-        ["tab.charged", "payment.completed"],
+        ["payment.completed"],
         "whsec_test_acceptance_secret"
       );
       assert.ok(reg.id, "register should return id");

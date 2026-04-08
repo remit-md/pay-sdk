@@ -153,7 +153,7 @@ class TestWebhookCRUD:
         hook_url = f"https://example.com/hooks/py-test-{int(time.time())}"
 
         # Register
-        reg = client.register_webhook(hook_url, events=["tab.charged", "payment.completed"], secret="whsec_test_acceptance_secret")
+        reg = client.register_webhook(hook_url, events=["payment.completed"], secret="whsec_test_acceptance_secret")
         assert reg.webhook_id, "should return webhook_id"
 
         # List

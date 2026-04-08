@@ -164,12 +164,12 @@ class TestWebhookCrud:
         """Register a webhook endpoint."""
         wh = client.register_webhook(
             f"https://example.com/hook/{uuid.uuid4().hex[:8]}",
-            events=["tab.charged", "payment.completed"],
+            events=["payment.completed"],
             secret="whsec_test_" + uuid.uuid4().hex[:8],
         )
         assert wh.webhook_id
         assert wh.url.startswith("https://")
-        assert "tab.charged" in wh.events
+        assert "payment.completed" in wh.events
         TestWebhookCrud._wh_id = wh.webhook_id
 
     def test_02_list(self, client: PayClient) -> None:

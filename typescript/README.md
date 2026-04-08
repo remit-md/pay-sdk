@@ -96,7 +96,7 @@ const status = await client.getStatus();
 ### Webhooks
 
 ```typescript
-const wh = await client.registerWebhook(url, { events: ["tab.charged"], secret: "whsec_..." });
+const wh = await client.registerWebhook(url, { events: ["tab.opened"], secret: "whsec_..." });
 const webhooks = await client.listWebhooks();
 await client.deleteWebhook(webhookId);
 ```
