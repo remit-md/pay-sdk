@@ -27,6 +27,8 @@ jobs:
         run: cd python && pip install -e ".[dev]"
       - name: Lint
         run: cd python && ruff check .
+      - name: Dead code check
+        run: cd python && vulture src/ tests/ vulture_whitelist.py
       - name: Format check
         run: cd python && ruff format --check .
       - name: Type check
@@ -58,6 +60,8 @@ jobs:
         run: cd typescript && pnpm install --frozen-lockfile
       - name: Typecheck
         run: cd typescript && pnpm tsc --noEmit
+      - name: Dead code check
+        run: cd typescript && pnpm knip
       - name: Build
         run: cd typescript && pnpm tsc
       - name: Unit tests
