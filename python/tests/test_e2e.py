@@ -35,7 +35,6 @@ skip_no_key = pytest.mark.skipif(not TESTNET_KEY, reason="PAYSKILL_TESTNET_KEY n
 pytestmark = [pytest.mark.e2e, pytest.mark.timeout(60)]
 
 
-
 @pytest.fixture(scope="module")
 def client() -> Generator[PayClient, None, None]:
     c = PayClient(

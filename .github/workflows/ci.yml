@@ -61,7 +61,7 @@ jobs:
       - name: Typecheck
         run: cd typescript && pnpm tsc --noEmit
       - name: Dead code check
-        run: cd typescript && pnpm knip
+        run: cd typescript && npx knip
       - name: Build
         run: cd typescript && pnpm tsc
       - name: Unit tests
