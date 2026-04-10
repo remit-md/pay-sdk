@@ -361,6 +361,13 @@ export class PayClient {
         reqs.amount * PayClient.X402_TAB_MULTIPLIER,
         TAB_MIN
       );
+      // Pre-flight balance check before auto-opening tab
+      const status = await this.getStatus();
+      if (status.balance < tabAmount / 1_000_000) {
+        throw new Error(
+          `insufficient balance: have $${status.balance.toFixed(2)}, need $${(tabAmount / 1_000_000).toFixed(2)} to open tab`
+        );
+      }
       tab = await this.openTab(reqs.to, tabAmount, {
         maxChargePerCall: reqs.amount,
       });

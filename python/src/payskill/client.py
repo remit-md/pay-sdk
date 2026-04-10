@@ -354,6 +354,14 @@ class PayClient:
         if tab is None:
             # Auto-open tab: 10x per-call price, minimum $5
             tab_amount = max(amount * self._X402_TAB_MULTIPLIER, self._X402_TAB_MIN)
+            # Pre-flight balance check before auto-opening tab
+            status = self.get_status()
+            balance_micro = int(status.balance * 1_000_000)
+            if balance_micro < tab_amount:
+                raise ValueError(
+                    f"insufficient balance: have ${status.balance:.2f}, "
+                    f"need ${tab_amount / 1_000_000:.2f} to open tab"
+                )
             tab = self.open_tab(provider, tab_amount, max_charge_per_call=amount)
 
         # Charge the tab via server
