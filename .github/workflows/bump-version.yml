@@ -52,11 +52,16 @@ jobs:
         run: |
           sed -i 's/^version = .*/version = "${{ steps.next.outputs.version }}"/' python/pyproject.toml
 
+      - name: Update TypeScript jsr.json
+        run: |
+          cd typescript
+          jq '.version = "${{ steps.next.outputs.version }}"' jsr.json > tmp.json && mv tmp.json jsr.json
+
       - name: Commit and tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION typescript/package.json python/pyproject.toml
+          git add VERSION typescript/package.json typescript/jsr.json python/pyproject.toml
           git commit -m "release: v${{ steps.next.outputs.version }}"
           git tag "v${{ steps.next.outputs.version }}"
           git push origin main --tags
