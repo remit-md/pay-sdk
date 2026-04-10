@@ -38,6 +38,7 @@ dev = [
     "pytest-timeout>=2.3",
     "pytest-httpx>=0.30",
     "ruff>=0.4",
+    "vulture>=2.11",
     "mypy>=1.10",
 ]
 

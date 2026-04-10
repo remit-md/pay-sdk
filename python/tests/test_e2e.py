@@ -18,7 +18,6 @@ import pytest
 from payskill.client import PayClient
 from payskill.errors import PayValidationError
 from payskill.models import TabStatus
-from payskill.signer import CallbackSigner
 
 TESTNET_URL = os.environ.get("PAYSKILL_TESTNET_URL", "https://testnet.pay-skill.com/api/v1")
 TESTNET_KEY = os.environ.get("PAYSKILL_TESTNET_KEY", "")
@@ -35,26 +34,6 @@ skip_no_key = pytest.mark.skipif(not TESTNET_KEY, reason="PAYSKILL_TESTNET_KEY n
 # Mark all tests in this module as e2e
 pytestmark = [pytest.mark.e2e, pytest.mark.timeout(60)]
 
-
-def _make_signer() -> CallbackSigner:
-    """Build a signer from the testnet private key.
-
-    Uses eth_account if available, otherwise a dummy signer
-    (server may accept unsigned requests on testnet).
-    """
-    try:
-        from eth_account import Account  # type: ignore[import-untyped]
-
-        acct = Account.from_key(TESTNET_KEY)
-
-        def _sign(hash_bytes: bytes) -> bytes:
-            signed = acct.signHash(hash_bytes)
-            return bytes(signed.signature)
-
-        return CallbackSigner(callback=_sign)
-    except ImportError:
-        # Fallback: dummy signer for testnet (server may not verify sigs)
-        return CallbackSigner(callback=lambda h: b"\x00" * 65)
 
 
 @pytest.fixture(scope="module")
