@@ -382,11 +382,14 @@ class Wallet:
         _ows_module: Any = None,
     ) -> Wallet:
         """Factory. Creates a wallet backed by an OWS (Open Wallet Standard) wallet."""
+        ows: Any
         if _ows_module is not None:
             ows = _ows_module
         else:
             try:
-                import ows  # type: ignore[import-untyped]
+                import ows as _ows  # type: ignore[import-untyped]
+
+                ows = _ows
             except ImportError:
                 raise PayError(
                     "open-wallet-standard is not installed. "
@@ -957,7 +960,7 @@ class Wallet:
                 "agent_name": agent_name,
             },
         )
-        return data["url"]
+        return str(data["url"])
 
     def create_withdraw_link(
         self,
@@ -973,7 +976,7 @@ class Wallet:
                 "agent_name": agent_name,
             },
         )
-        return data["url"]
+        return str(data["url"])
 
     # -- Public: Webhooks -----------------------------------------------------
 
