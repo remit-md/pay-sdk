@@ -193,14 +193,21 @@ class TestSend:
             wallet.send("bad_address", 5.0)
 
     def test_success(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, {"hash": "0x" + "cc" * 32, "nonce": "1", "deadline": 9999999}),
-            (200, {
-                "tx_hash": "0x" + "dd" * 32, "status": "confirmed",
-                "amount": 5_000_000, "fee": 50_000,
-            }),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (200, {"hash": "0x" + "cc" * 32, "nonce": "1", "deadline": 9999999}),
+                (
+                    200,
+                    {
+                        "tx_hash": "0x" + "dd" * 32,
+                        "status": "confirmed",
+                        "amount": 5_000_000,
+                        "fee": 50_000,
+                    },
+                ),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.send("0x" + "a" * 40, 5.0)
         assert isinstance(result, SendResult)
@@ -218,24 +225,29 @@ class TestTabs:
             wallet.open_tab("bad", 10.0, 0.10)
 
     def test_open_success(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, {"hash": "0x" + "cc" * 32, "nonce": "1", "deadline": 9999999}),
-            (200, {
-                "tab_id": "tab-123",
-                "provider": "0x" + "a" * 40,
-                "amount": 10_000_000,
-                "balance_remaining": 9_900_000,
-                "total_charged": 0,
-                "charge_count": 0,
-                "max_charge_per_call": 100_000,
-                "total_withdrawn": 0,
-                "status": "open",
-                "pending_charge_count": 0,
-                "pending_charge_total": 0,
-                "effective_balance": 9_900_000,
-            }),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (200, {"hash": "0x" + "cc" * 32, "nonce": "1", "deadline": 9999999}),
+                (
+                    200,
+                    {
+                        "tab_id": "tab-123",
+                        "provider": "0x" + "a" * 40,
+                        "amount": 10_000_000,
+                        "balance_remaining": 9_900_000,
+                        "total_charged": 0,
+                        "charge_count": 0,
+                        "max_charge_per_call": 100_000,
+                        "total_withdrawn": 0,
+                        "status": "open",
+                        "pending_charge_count": 0,
+                        "pending_charge_total": 0,
+                        "effective_balance": 9_900_000,
+                    },
+                ),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.open_tab("0x" + "a" * 40, 10.0, 0.10)
         assert isinstance(result, Tab)
@@ -243,23 +255,30 @@ class TestTabs:
         assert result.amount == 10.0
 
     def test_list(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, [{
-                "tab_id": "tab-1",
-                "provider": "0x" + "a" * 40,
-                "amount": 10_000_000,
-                "balance_remaining": 9_000_000,
-                "total_charged": 1_000_000,
-                "charge_count": 5,
-                "max_charge_per_call": 200_000,
-                "total_withdrawn": 0,
-                "status": "open",
-                "pending_charge_count": 0,
-                "pending_charge_total": 0,
-                "effective_balance": 9_000_000,
-            }]),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (
+                    200,
+                    [
+                        {
+                            "tab_id": "tab-1",
+                            "provider": "0x" + "a" * 40,
+                            "amount": 10_000_000,
+                            "balance_remaining": 9_000_000,
+                            "total_charged": 1_000_000,
+                            "charge_count": 5,
+                            "max_charge_per_call": 200_000,
+                            "total_withdrawn": 0,
+                            "status": "open",
+                            "pending_charge_count": 0,
+                            "pending_charge_total": 0,
+                            "effective_balance": 9_000_000,
+                        }
+                    ],
+                ),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.list_tabs()
         assert len(result) == 1
@@ -267,10 +286,12 @@ class TestTabs:
         assert result[0].charge_count == 5
 
     def test_charge(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, {"charge_id": "chg-1", "status": "buffered"}),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (200, {"charge_id": "chg-1", "status": "buffered"}),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.charge_tab("tab-1", 0.05)
         assert isinstance(result, ChargeResult)
@@ -279,13 +300,20 @@ class TestTabs:
 
 class TestBalance:
     def test_balance(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, {
-                "wallet": wallet.address, "balance_usdc": "50000000",
-                "total_locked": 10_000_000, "open_tabs": 2,
-            }),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (
+                    200,
+                    {
+                        "wallet": wallet.address,
+                        "balance_usdc": "50000000",
+                        "total_locked": 10_000_000,
+                        "open_tabs": 2,
+                    },
+                ),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.balance()
         assert isinstance(result, Balance)
@@ -294,13 +322,20 @@ class TestBalance:
         assert result.available == 40.0
 
     def test_status(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, {
-                "wallet": wallet.address, "balance_usdc": "50000000",
-                "total_locked": 10_000_000, "open_tabs": 2,
-            }),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (
+                    200,
+                    {
+                        "wallet": wallet.address,
+                        "balance_usdc": "50000000",
+                        "total_locked": 10_000_000,
+                        "open_tabs": 2,
+                    },
+                ),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.status()
         assert isinstance(result, Status)
@@ -310,54 +345,74 @@ class TestBalance:
 
 class TestWebhooks:
     def test_register(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, {
-                "id": "wh-1", "url": "https://example.com/hook",
-                "events": ["payment.completed"],
-            }),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (
+                    200,
+                    {
+                        "id": "wh-1",
+                        "url": "https://example.com/hook",
+                        "events": ["payment.completed"],
+                    },
+                ),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.register_webhook("https://example.com/hook", events=["payment.completed"])
         assert isinstance(result, WebhookRegistration)
         assert result.id == "wh-1"
 
     def test_list(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, [{
-                "id": "wh-1", "url": "https://example.com/hook",
-                "events": ["payment.completed"],
-            }]),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (
+                    200,
+                    [
+                        {
+                            "id": "wh-1",
+                            "url": "https://example.com/hook",
+                            "events": ["payment.completed"],
+                        }
+                    ],
+                ),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.list_webhooks()
         assert len(result) == 1
 
     def test_delete(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (204, ""),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (204, ""),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         wallet.delete_webhook("wh-1")  # should not raise
 
 
 class TestFunding:
     def test_create_fund_link(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, {"url": "https://pay-skill.com/fund/abc123"}),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (200, {"url": "https://pay-skill.com/fund/abc123"}),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.create_fund_link(message="Need funds")
         assert result == "https://pay-skill.com/fund/abc123"
 
     def test_create_withdraw_link(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, {"url": "https://pay-skill.com/withdraw/abc123"}),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (200, {"url": "https://pay-skill.com/withdraw/abc123"}),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.create_withdraw_link()
         assert result == "https://pay-skill.com/withdraw/abc123"
@@ -365,10 +420,12 @@ class TestFunding:
 
 class TestMint:
     def test_mint_testnet(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (200, {"tx_hash": "0x" + "ee" * 32, "amount": 100_000_000}),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (200, {"tx_hash": "0x" + "ee" * 32, "amount": 100_000_000}),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.mint(100)
         assert isinstance(result, MintResult)
@@ -383,20 +440,24 @@ class TestMint:
 
 class TestErrorHandling:
     def test_server_error(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (500, {"error": "Internal server error"}),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (500, {"error": "Internal server error"}),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         with pytest.raises(PayServerError) as exc_info:
             wallet.balance()
         assert exc_info.value.status_code == 500
 
     def test_insufficient_funds_detected(self, wallet):
-        transport = mock_transport([
-            (200, CONTRACTS_RESPONSE),
-            (402, {"error": "Insufficient USDC balance", "code": "insufficient_funds"}),
-        ])
+        transport = mock_transport(
+            [
+                (200, CONTRACTS_RESPONSE),
+                (402, {"error": "Insufficient USDC balance", "code": "insufficient_funds"}),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         with pytest.raises(PayInsufficientFundsError):
             wallet.balance()
@@ -404,12 +465,25 @@ class TestErrorHandling:
 
 class TestDiscover:
     def test_standalone_discover(self):
-        transport = mock_transport([
-            (200, {"services": [
-                {"name": "Test API", "description": "A test", "base_url": "https://test.com",
-                 "category": "data", "keywords": ["test"], "routes": []},
-            ]}),
-        ])
+        transport = mock_transport(
+            [
+                (
+                    200,
+                    {
+                        "services": [
+                            {
+                                "name": "Test API",
+                                "description": "A test",
+                                "base_url": "https://test.com",
+                                "category": "data",
+                                "keywords": ["test"],
+                                "routes": [],
+                            },
+                        ]
+                    },
+                ),
+            ]
+        )
         client = httpx.Client(transport=transport)
         with patch("payskill.wallet.httpx.get", side_effect=lambda *a, **kw: client.get(*a, **kw)):
             from payskill.wallet import discover
@@ -419,20 +493,44 @@ class TestDiscover:
             assert result[0].name == "Test API"
 
     def test_wallet_discover(self, wallet):
-        transport = mock_transport([
-            (200, {"services": [
-                {"name": "Weather", "description": "Weather data", "base_url": "https://weather.com",
-                 "category": "data", "keywords": ["weather"], "routes": []},
-            ]}),
-        ])
+        transport = mock_transport(
+            [
+                (
+                    200,
+                    {
+                        "services": [
+                            {
+                                "name": "Weather",
+                                "description": "Weather data",
+                                "base_url": "https://weather.com",
+                                "category": "data",
+                                "keywords": ["weather"],
+                                "routes": [],
+                            },
+                        ]
+                    },
+                ),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         # discover uses _discover_impl which calls httpx.get directly, not wallet._client
         # so we need to patch httpx.get
         with patch("payskill.wallet.httpx.get") as mock_get:
-            mock_get.return_value = httpx.Response(200, json={"services": [
-                {"name": "Weather", "description": "Weather data", "base_url": "https://weather.com",
-                 "category": "data", "keywords": ["weather"], "routes": []},
-            ]})
+            mock_get.return_value = httpx.Response(
+                200,
+                json={
+                    "services": [
+                        {
+                            "name": "Weather",
+                            "description": "Weather data",
+                            "base_url": "https://weather.com",
+                            "category": "data",
+                            "keywords": ["weather"],
+                            "routes": [],
+                        },
+                    ]
+                },
+            )
             result = wallet.discover("weather")
             assert len(result) == 1
             assert result[0].name == "Weather"
@@ -440,9 +538,11 @@ class TestDiscover:
 
 class TestX402:
     def test_non_402_passes_through(self, wallet):
-        transport = mock_transport([
-            (200, {"data": "success"}),
-        ])
+        transport = mock_transport(
+            [
+                (200, {"data": "success"}),
+            ]
+        )
         wallet._client = httpx.Client(transport=transport)
         resp = wallet.request("https://api.example.com/data")
         assert resp.status_code == 200
@@ -450,13 +550,17 @@ class TestX402:
     def test_402_extract_from_body(self):
         from payskill.wallet import _extract_402
 
-        result = _extract_402({
-            "accepts": [{
-                "amount": 100000,
-                "payTo": "0x" + "a" * 40,
-                "extra": {"settlement": "direct"},
-            }],
-        })
+        result = _extract_402(
+            {
+                "accepts": [
+                    {
+                        "amount": 100000,
+                        "payTo": "0x" + "a" * 40,
+                        "extra": {"settlement": "direct"},
+                    }
+                ],
+            }
+        )
         assert result["settlement"] == "direct"
         assert result["amount"] == 100000
         assert result["to"] == "0x" + "a" * 40
@@ -464,10 +568,12 @@ class TestX402:
     def test_402_extract_flat(self):
         from payskill.wallet import _extract_402
 
-        result = _extract_402({
-            "settlement": "tab",
-            "amount": 50000,
-            "to": "0x" + "b" * 40,
-        })
+        result = _extract_402(
+            {
+                "settlement": "tab",
+                "amount": 50000,
+                "to": "0x" + "b" * 40,
+            }
+        )
         assert result["settlement"] == "tab"
         assert result["amount"] == 50000

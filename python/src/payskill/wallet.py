@@ -442,9 +442,7 @@ class Wallet:
             v = recovery_id + 27
             return f"0x{sig}{v:02x}"
 
-        is_testnet = (
-            testnet if testnet is not None else bool(os.environ.get("PAYSKILL_TESTNET"))
-        )
+        is_testnet = testnet if testnet is not None else bool(os.environ.get("PAYSKILL_TESTNET"))
         return cls(
             _ows_init=_OwsInit(
                 address=evm_account["address"],
@@ -662,12 +660,15 @@ class Wallet:
         )
         payment_payload = {
             "x402Version": 2,
-            "accepted": reqs.get("accepted", {
-                "scheme": "exact",
-                "network": f"eip155:{contracts.chain_id}",
-                "amount": str(reqs["amount"]),
-                "payTo": reqs["to"],
-            }),
+            "accepted": reqs.get(
+                "accepted",
+                {
+                    "scheme": "exact",
+                    "network": f"eip155:{contracts.chain_id}",
+                    "amount": str(reqs["amount"]),
+                    "payTo": reqs["to"],
+                },
+            ),
             "payload": {
                 "signature": auth["signature"],
                 "authorization": {
@@ -720,30 +721,36 @@ class Wallet:
                     tab_dollars,
                 )
             permit = self._sign_permit("tab", tab_micro)
-            tab = self._post("/tabs", {
-                "provider": reqs["to"],
-                "amount": tab_micro,
-                "max_charge_per_call": reqs["amount"],
-                "permit": {
-                    "nonce": permit.nonce,
-                    "deadline": permit.deadline,
-                    "v": permit.v,
-                    "r": permit.r,
-                    "s": permit.s,
+            tab = self._post(
+                "/tabs",
+                {
+                    "provider": reqs["to"],
+                    "amount": tab_micro,
+                    "max_charge_per_call": reqs["amount"],
+                    "permit": {
+                        "nonce": permit.nonce,
+                        "deadline": permit.deadline,
+                        "v": permit.v,
+                        "r": permit.r,
+                        "s": permit.s,
+                    },
                 },
-            })
+            )
 
         tab_id = tab.get("tab_id", tab.get("id", ""))
         charge = self._post(f"/tabs/{tab_id}/charge", {"amount": reqs["amount"]})
 
         payment_payload = {
             "x402Version": 2,
-            "accepted": reqs.get("accepted", {
-                "scheme": "exact",
-                "network": f"eip155:{contracts.chain_id}",
-                "amount": str(reqs["amount"]),
-                "payTo": reqs["to"],
-            }),
+            "accepted": reqs.get(
+                "accepted",
+                {
+                    "scheme": "exact",
+                    "network": f"eip155:{contracts.chain_id}",
+                    "amount": str(reqs["amount"]),
+                    "payTo": reqs["to"],
+                },
+            ),
             "payload": {
                 "authorization": {"from": self.address},
             },
@@ -776,18 +783,21 @@ class Wallet:
         if micro < DIRECT_MIN_MICRO:
             raise PayValidationError("Amount below minimum ($1.00)", "amount")
         permit = self._sign_permit("direct", micro)
-        raw = self._post("/direct", {
-            "to": to,
-            "amount": micro,
-            "memo": memo or "",
-            "permit": {
-                "nonce": permit.nonce,
-                "deadline": permit.deadline,
-                "v": permit.v,
-                "r": permit.r,
-                "s": permit.s,
+        raw = self._post(
+            "/direct",
+            {
+                "to": to,
+                "amount": micro,
+                "memo": memo or "",
+                "permit": {
+                    "nonce": permit.nonce,
+                    "deadline": permit.deadline,
+                    "v": permit.v,
+                    "r": permit.r,
+                    "s": permit.s,
+                },
             },
-        })
+        )
         return SendResult(
             tx_hash=raw.get("tx_hash", ""),
             status=raw.get("status", ""),
@@ -807,18 +817,21 @@ class Wallet:
         if micro_max <= 0:
             raise PayValidationError("max_charge_per_call must be positive", "maxChargePerCall")
         permit = self._sign_permit("tab", micro_amount)
-        raw = self._post("/tabs", {
-            "provider": provider,
-            "amount": micro_amount,
-            "max_charge_per_call": micro_max,
-            "permit": {
-                "nonce": permit.nonce,
-                "deadline": permit.deadline,
-                "v": permit.v,
-                "r": permit.r,
-                "s": permit.s,
+        raw = self._post(
+            "/tabs",
+            {
+                "provider": provider,
+                "amount": micro_amount,
+                "max_charge_per_call": micro_max,
+                "permit": {
+                    "nonce": permit.nonce,
+                    "deadline": permit.deadline,
+                    "v": permit.v,
+                    "r": permit.r,
+                    "s": permit.s,
+                },
             },
-        })
+        )
         return _parse_tab(raw)
 
     def close_tab(self, tab_id: str) -> Tab:
@@ -832,16 +845,19 @@ class Wallet:
         if micro <= 0:
             raise PayValidationError("Amount must be positive", "amount")
         permit = self._sign_permit("tab", micro)
-        raw = self._post(f"/tabs/{tab_id}/topup", {
-            "amount": micro,
-            "permit": {
-                "nonce": permit.nonce,
-                "deadline": permit.deadline,
-                "v": permit.v,
-                "r": permit.r,
-                "s": permit.s,
+        raw = self._post(
+            f"/tabs/{tab_id}/topup",
+            {
+                "amount": micro,
+                "permit": {
+                    "nonce": permit.nonce,
+                    "deadline": permit.deadline,
+                    "v": permit.v,
+                    "r": permit.r,
+                    "s": permit.s,
+                },
             },
-        })
+        )
         return _parse_tab(raw)
 
     def list_tabs(self) -> list[Tab]:
@@ -934,10 +950,13 @@ class Wallet:
         agent_name: str | None = None,
     ) -> str:
         """Create a funding link for depositing USDC."""
-        data = self._post("/links/fund", {
-            "messages": [{"text": message}] if message else [],
-            "agent_name": agent_name,
-        })
+        data = self._post(
+            "/links/fund",
+            {
+                "messages": [{"text": message}] if message else [],
+                "agent_name": agent_name,
+            },
+        )
         return data["url"]
 
     def create_withdraw_link(
@@ -947,10 +966,13 @@ class Wallet:
         agent_name: str | None = None,
     ) -> str:
         """Create a withdrawal link for withdrawing USDC."""
-        data = self._post("/links/withdraw", {
-            "messages": [{"text": message}] if message else [],
-            "agent_name": agent_name,
-        })
+        data = self._post(
+            "/links/withdraw",
+            {
+                "messages": [{"text": message}] if message else [],
+                "agent_name": agent_name,
+            },
+        )
         return data["url"]
 
     # -- Public: Webhooks -----------------------------------------------------
