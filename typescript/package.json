@@ -1,6 +1,6 @@
 {
   "name": "@pay-skill/sdk",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "TypeScript SDK for pay — payment infrastructure for AI agents",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,6 +20,9 @@
   "dependencies": {
     "viem": "^2.0.0"
   },
+  "optionalDependencies": {
+    "keytar": "^7.9.0"
+  },
   "peerDependencies": {
     "@open-wallet-standard/core": ">=1.2.0"
   },
@@ -38,7 +41,7 @@
     "typescript-eslint": "^8.0.0"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=18.0.0"
   },
   "license": "MIT",
   "repository": {

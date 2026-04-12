@@ -1,8 +1,13 @@
 # @pay-skill/sdk
 
-TypeScript SDK for [pay](https://pay-skill.com) — payment infrastructure for AI agents. USDC on Base.
+TypeScript SDK for [pay](https://pay-skill.com) -- payment infrastructure for AI agents. USDC on Base.
 
-Three primitives: direct payments, tabs (pre-funded metered accounts), and x402 HTTP paywalls.
+```ts
+import { Wallet } from "@pay-skill/sdk";
+
+const wallet = new Wallet();
+await wallet.send("0xProvider...", 5, "for API access");
+```
 
 ## Install
 
@@ -10,144 +15,128 @@ Three primitives: direct payments, tabs (pre-funded metered accounts), and x402 
 npm install @pay-skill/sdk
 ```
 
-Requires Node.js 20+.
-
 ## Quick Start
 
-```typescript
-import { PayClient } from "@pay-skill/sdk";
+### Zero-config (env var)
 
-const client = new PayClient({ signer: "cli" }); // uses `pay sign` subprocess
+Set `PAYSKILL_KEY` to your hex private key:
 
-// Pay another agent $5
-const result = await client.payDirect("0xprovider...", 5_000_000, { memo: "task-42" });
-console.log(result.txHash);
-
-// Open a metered tab
-const tab = await client.openTab("0xprovider...", 20_000_000, { maxChargePerCall: 500_000 });
-
-// x402 request (SDK handles payment automatically)
-const response = await client.request("https://api.example.com/data");
+```ts
+const wallet = new Wallet();
+const { txHash } = await wallet.send("0xRecipient...", 10);
 ```
 
-All amounts are in USDC micro-units (6 decimals). `$1.00 = 1_000_000`.
+### Explicit key
 
-## API Reference
-
-### PayClient
-
-```typescript
-import { PayClient } from "@pay-skill/sdk";
-
-const client = new PayClient({
-  apiUrl: "https://pay-skill.com/api/v1", // default
-  signer: "cli", // "cli", "raw", "custom", or a Signer instance
-});
+```ts
+const wallet = new Wallet({ privateKey: "0xdead..." });
 ```
 
-### Direct Payment
+### OS keychain (same key as `pay` CLI)
 
-One-shot USDC transfer. $1.00 minimum.
-
-```typescript
-const result = await client.payDirect(to, amount, { memo });
-// Returns: { txHash, status, amount, fee }
+```ts
+const wallet = await Wallet.create();
 ```
 
-### Tab Management
+### Testnet
 
-Pre-funded metered account. $5.00 minimum to open.
-
-```typescript
-// Open
-const tab = await client.openTab(provider, amount, { maxChargePerCall });
-
-// Query
-const tabs = await client.listTabs();
-const tab = await client.getTab(tabId);
-
-// Top up (no extra activation fee)
-const tab = await client.topUpTab(tabId, amount);
-
-// Close (either party, unilateral)
-const tab = await client.closeTab(tabId);
+```ts
+const wallet = new Wallet({ testnet: true });
+// or: PAYSKILL_TESTNET=1
+await wallet.mint(100); // mint $100 test USDC
 ```
 
-Returns `Tab { tabId, provider, amount, balanceRemaining, totalCharged, chargeCount, maxChargePerCall, status }`.
+### OWS (Open Wallet Standard)
 
-### x402 Requests
-
-Transparent HTTP 402 handling. The SDK detects `402 Payment Required`, pays (via direct or tab), and retries.
-
-```typescript
-const response = await client.request(url, { method, body, headers });
-// Returns: Response (native fetch Response)
+```ts
+const wallet = await Wallet.fromOws({ walletId: "my-agent" });
 ```
 
-If the provider requires tab settlement, the SDK auto-opens a tab at 10x the per-call price (minimum $5).
+Requires `@open-wallet-standard/core` as a peer dependency.
+
+## API
+
+All amounts are in dollars by default. Use `{ micro: N }` for micro-USDC precision.
+
+### Payments
+
+```ts
+await wallet.send(to, 5);                    // $5 direct payment
+await wallet.send(to, 5, "invoice #42");     // with memo
+await wallet.send(to, { micro: 5_000_000 }); // micro-USDC
+```
+
+### Tabs (pre-funded metered accounts)
+
+```ts
+const tab = await wallet.openTab(provider, 50, 1);  // $50 tab, $1 max/charge
+await wallet.chargeTab(tab.id, 0.01);                // charge $0.01
+await wallet.topUpTab(tab.id, 25);                   // add $25
+await wallet.closeTab(tab.id);                       // close + settle
+const tabs = await wallet.listTabs();
+const tab = await wallet.getTab(tabId);
+```
+
+### x402 (paid HTTP)
+
+```ts
+const resp = await wallet.request("https://api.example.com/data");
+// Handles 402 responses automatically: pays, retries, returns final response
+```
 
 ### Wallet
 
-```typescript
-const status = await client.getStatus();
-// Returns: { address, balance, openTabs }
+```ts
+const bal = await wallet.balance();  // { total, locked, available }
+const info = await wallet.status();  // { address, balance, openTabs }
 ```
 
-### Webhooks
+### Discovery
 
-```typescript
-const wh = await client.registerWebhook(url, { events: ["tab.opened"], secret: "whsec_..." });
-const webhooks = await client.listWebhooks();
-await client.deleteWebhook(webhookId);
+```ts
+const services = await wallet.discover("weather");
+// Or without a wallet:
+import { discover } from "@pay-skill/sdk";
+const services = await discover("weather");
 ```
 
 ### Funding
 
-```typescript
-const fundUrl = await client.createFundLink(10_000_000);    // Coinbase Onramp
-const withdrawUrl = await client.createWithdrawLink(5_000_000);
+```ts
+const url = await wallet.createFundLink({ message: "Need $50 for API calls" });
+const url = await wallet.createWithdrawLink();
 ```
 
-## Signer Modes
+### Webhooks
 
-| Mode | Usage | When |
-|------|-------|------|
-| `"cli"` | Subprocess call to `pay sign` | Default. Key in OS keychain. |
-| `"raw"` | `PAYSKILL_KEY` env var | Dev/testing only. |
-| `"custom"` | Your own callback | Custom key management. |
-
-```typescript
-// CLI signer (default)
-const client = new PayClient({ signer: "cli" });
-
-// Raw key (dev only)
-const client = new PayClient({ signer: "raw", signerOptions: { key: "0xdead..." } });
-
-// Custom callback
-import { CallbackSigner } from "@pay-skill/sdk";
-const signer = new CallbackSigner((hash: Uint8Array) => mySign(hash));
-const client = new PayClient({ signer });
+```ts
+const wh = await wallet.registerWebhook("https://example.com/hook", ["payment.completed"]);
+const hooks = await wallet.listWebhooks();
+await wallet.deleteWebhook(wh.id);
 ```
 
-## Error Handling
+### Testnet
 
-```typescript
+```ts
+await wallet.mint(100); // mint $100 test USDC (testnet only)
+```
+
+## Errors
+
+```ts
 import {
-  PayError,                  // Base class
-  PayValidationError,        // Bad input (has .field)
-  PayNetworkError,           // Connection failed
-  PayServerError,            // Server returned error (has .statusCode)
-  PayInsufficientFundsError, // Not enough USDC
+  PayError,                  // base
+  PayValidationError,        // invalid input
+  PayNetworkError,           // network failure
+  PayServerError,            // server 4xx/5xx
+  PayInsufficientFundsError, // low balance (hints createFundLink)
 } from "@pay-skill/sdk";
 ```
 
-## Configuration
+## Requirements
 
-| Env Var | Purpose |
-|---------|---------|
-| `PAYSKILL_KEY` | Private key for raw signer mode |
-
-The API URL is configurable via the `apiUrl` option. Default: `https://pay-skill.com/api/v1`.
+- Node.js 18+
+- ESM only
 
 ## License
 

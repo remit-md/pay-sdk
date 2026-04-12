@@ -1,158 +1,99 @@
 /**
  * E2E acceptance tests — run against live testnet.
  *
- * Skip unless PAYSKILL_TESTNET_KEY is set. These hit the real testnet server
- * and exercise the full SDK → server round-trip with REAL authentication.
+ * Skip unless PAYSKILL_TESTNET_KEY is set.
  *
  * Usage:
- *   PAYSKILL_TESTNET_KEY=0xdead... \
- *   PAYSKILL_TESTNET_URL=http://204.168.133.111:3001/api/v1 \
- *   node --import tsx --test tests/test_e2e.ts
+ *   PAYSKILL_TESTNET_KEY=0xdead... node --import tsx --test tests/test_e2e.ts
  */
 
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { Wallet, PayValidationError } from "../src/index.js";
 
-import { PayClient, PayValidationError, PayServerError, buildAuthHeaders } from "../src/index.js";
-import type { WebhookRegistration, AuthHeaders } from "../src/index.js";
-import type { Hex } from "viem";
-
-const TESTNET_URL =
-  process.env.PAYSKILL_TESTNET_URL ?? "http://204.168.133.111:3001/api/v1";
 const TESTNET_KEY = process.env.PAYSKILL_TESTNET_KEY ?? "";
-
-// Testnet contract addresses (Base Sepolia)
-const CHAIN_ID = 84532;
-const ROUTER_ADDRESS = "0xE0Aa45e6937F3b9Fc0BEe457361885Cb9bfC067F";
-
 const skip = !TESTNET_KEY;
 
-function makeClient(): PayClient {
-  return new PayClient({
-    apiUrl: TESTNET_URL,
-    privateKey: TESTNET_KEY,
-    chainId: CHAIN_ID,
-    routerAddress: ROUTER_ADDRESS,
-  });
+function makeWallet(): Wallet {
+  return new Wallet({ privateKey: TESTNET_KEY, testnet: true });
 }
 
-// ── Auth Verification ──────────────────────────────────────────────
+describe("E2E: Status + Balance", { skip }, () => {
+  let wallet: Wallet;
+  before(() => { wallet = makeWallet(); });
 
-describe("E2E: Auth works with real signing", { skip }, () => {
-  let client: PayClient;
-
-  before(() => {
-    client = makeClient();
-  });
-
-  it("status endpoint returns valid response with real auth", async () => {
-    const status = await client.getStatus();
-    assert.ok(typeof status.address === "string");
+  it("status returns valid response", async () => {
+    const status = await wallet.status();
     assert.ok(status.address.startsWith("0x"));
-    assert.ok(typeof status.balance === "number");
-    assert.ok(status.balance >= 0);
-    assert.ok(Array.isArray(status.openTabs));
+    assert.ok(status.balance.total >= 0);
+    assert.ok(typeof status.openTabs === "number");
   });
 
-  it("rejects request without auth headers (raw fetch)", async () => {
-    const resp = await fetch(`${TESTNET_URL}/status`);
-    assert.equal(resp.status, 400, "should reject unauthenticated request");
-    const body = (await resp.json()) as { error: string };
-    assert.equal(body.error, "auth_missing");
+  it("balance returns total/locked/available", async () => {
+    const bal = await wallet.balance();
+    assert.ok(typeof bal.total === "number");
+    assert.ok(typeof bal.locked === "number");
+    assert.ok(typeof bal.available === "number");
+    assert.ok(bal.available <= bal.total);
   });
 });
-
-// ── Mint (Testnet Faucet) ──────────────────────────────────────────
 
 describe("E2E: Mint testnet USDC", { skip }, () => {
-  let client: PayClient;
+  let wallet: Wallet;
+  before(() => { wallet = makeWallet(); });
 
-  before(() => {
-    client = makeClient();
-  });
-
-  it("mints $10 USDC to the authenticated wallet", async () => {
-    const headers = await buildAuthHeaders(
-      TESTNET_KEY as Hex,
-      "POST",
-      "/api/v1/mint",
-      { chainId: CHAIN_ID, routerAddress: ROUTER_ADDRESS }
-    );
-    const resp = await fetch(`${TESTNET_URL}/mint`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify({ amount: 10_000_000 }),
-    });
-    const bodyText = await resp.text();
-    assert.equal(resp.status, 200, `mint failed: ${bodyText}`);
-    const body = JSON.parse(bodyText) as { tx_hash: string; amount: number; to: string };
-    assert.ok(body.tx_hash, "should return a tx_hash");
-    assert.equal(body.amount, 10_000_000);
-    assert.ok(body.to.startsWith("0x"));
+  it("mints $10 USDC", async () => {
+    const result = await wallet.mint(10);
+    assert.ok(result.txHash);
+    assert.equal(result.amount, 10);
   });
 });
 
-// ── Webhook CRUD ───────────────────────────────────────────────────
-
-describe("E2E: Webhook CRUD with real auth", { skip }, () => {
-  let client: PayClient;
-  let whId = "";
-
-  before(() => {
-    client = makeClient();
-  });
+describe("E2E: Webhook CRUD", { skip }, () => {
+  let wallet: Wallet;
+  let hookId = "";
+  before(() => { wallet = makeWallet(); });
 
   it("registers a webhook", async () => {
     const slug = randomUUID().slice(0, 8);
-    const wh = await client.registerWebhook(
+    const wh = await wallet.registerWebhook(
       `https://example.com/hook/${slug}`,
-      {
-        events: ["payment.completed"],
-        secret: `whsec_test_${slug}`,
-      }
+      ["payment.completed"],
+      `whsec_test_${slug}`,
     );
-    assert.ok(wh.webhookId);
+    assert.ok(wh.id);
     assert.ok(wh.url.startsWith("https://"));
-    assert.ok(wh.events.includes("payment.completed"));
-    whId = wh.webhookId;
+    hookId = wh.id;
   });
 
-  it("lists webhooks including the new one", async () => {
-    const webhooks = await client.listWebhooks();
-    assert.ok(Array.isArray(webhooks));
-    const ids = webhooks.map((w: WebhookRegistration) => w.webhookId);
-    assert.ok(ids.includes(whId));
+  it("lists webhooks", async () => {
+    const hooks = await wallet.listWebhooks();
+    assert.ok(hooks.some((h) => h.id === hookId));
   });
 
   it("deletes the webhook", async () => {
-    await client.deleteWebhook(whId);
-    const webhooks = await client.listWebhooks();
-    const ids = webhooks.map((w: WebhookRegistration) => w.webhookId);
-    assert.ok(!ids.includes(whId));
+    await wallet.deleteWebhook(hookId);
+    const hooks = await wallet.listWebhooks();
+    assert.ok(!hooks.some((h) => h.id === hookId));
   });
 });
 
-// ── Client-side validation still works ─────────────────────────────
-
-describe("E2E: Client validation", { skip }, () => {
-  let client: PayClient;
-
-  before(() => {
-    client = makeClient();
-  });
+describe("E2E: Validation still works", { skip }, () => {
+  let wallet: Wallet;
+  before(() => { wallet = makeWallet(); });
 
   it("rejects invalid address", async () => {
     await assert.rejects(
-      () => client.payDirect("not-an-address", 1_000_000),
-      (err: unknown) => err instanceof PayValidationError
+      () => wallet.send("not-an-address", 5),
+      PayValidationError,
     );
   });
 
   it("rejects amount below minimum", async () => {
     await assert.rejects(
-      () => client.payDirect("0x" + "a1".repeat(20), 500_000),
-      (err: unknown) => err instanceof PayValidationError
+      () => wallet.send("0x" + "a1".repeat(20), 0.5),
+      PayValidationError,
     );
   });
 });

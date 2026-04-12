@@ -10,6 +10,7 @@ export { Wallet, discover } from "./wallet.js";
 export type {
   Amount,
   WalletOptions,
+  OwsWalletOptions,
   SendResult,
   Tab,
   ChargeResult,

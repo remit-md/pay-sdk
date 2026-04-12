@@ -4,11 +4,12 @@
  * Zero-config for agents:  new Wallet()          (reads PAYSKILL_KEY env)
  * Explicit key:            new Wallet({ privateKey: "0x..." })
  * OS keychain (CLI key):   await Wallet.create()
+ * OWS wallet extension:    await Wallet.fromOws({ walletId: "..." })
  */
 
 import { type Hex, type Address } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
-import { buildAuthHeaders } from "./auth.js";
+import { buildAuthHeaders, buildAuthHeadersSigned } from "./auth.js";
 import { signTransferAuthorization, combinedSignature } from "./eip3009.js";
 import { readFromKeychain } from "./keychain.js";
 import {
@@ -30,6 +31,9 @@ const TAB_MIN_MICRO = 5_000_000; // $5.00
 const TAB_MULTIPLIER = 10;
 const DEFAULT_TIMEOUT = 30_000;
 
+// Internal sentinel for OWS construction
+const _OWS_INIT = Symbol("ows-init");
+
 // ── Public Types ─────────────────────────────────────────────────────
 
 /** Dollar amount (default) or micro-USDC for precision. */
@@ -42,6 +46,19 @@ export interface WalletOptions {
   testnet?: boolean;
   /** Request timeout in ms. Default: 30000. */
   timeout?: number;
+}
+
+export interface OwsWalletOptions {
+  /** OWS wallet name or UUID (e.g. "pay-my-agent"). */
+  walletId: string;
+  /** OWS API key token (passed as passphrase to OWS signing calls). */
+  owsApiKey?: string;
+  /** Use Base Sepolia testnet. Default: false (mainnet). */
+  testnet?: boolean;
+  /** Request timeout in ms. Default: 30000. */
+  timeout?: number;
+  /** @internal Inject OWS module for testing. */
+  _owsModule?: unknown;
 }
 
 export interface SendResult {
@@ -139,6 +156,13 @@ interface Permit {
   s: string;
 }
 
+type SignTypedDataFn = (params: {
+  domain: Record<string, unknown>;
+  types: Record<string, readonly { name: string; type: string }[]>;
+  primaryType: string;
+  message: Record<string, unknown>;
+}) => Promise<string>;
+
 // Raw server response (snake_case)
 interface RawTab {
   tab_id: string;
@@ -153,6 +177,30 @@ interface RawTab {
   pending_charge_count: number;
   pending_charge_total: number;
   effective_balance: number;
+}
+
+/** Subset of @open-wallet-standard/core we call at runtime. */
+interface OwsModule {
+  getWallet(
+    nameOrId: string,
+    vaultPath?: string,
+  ): {
+    id: string;
+    name: string;
+    accounts: Array<{
+      chainId: string;
+      address: string;
+      derivationPath: string;
+    }>;
+  };
+  signTypedData(
+    wallet: string,
+    chain: string,
+    typedDataJson: string,
+    passphrase?: string,
+    index?: number,
+    vaultPath?: string,
+  ): { signature: string; recoveryId?: number };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -217,11 +265,67 @@ function parseTab(raw: RawTab): Tab {
   };
 }
 
+function parseSig(signature: string): { v: number; r: string; s: string } {
+  const sig = signature.startsWith("0x")
+    ? signature.slice(2)
+    : signature;
+  return {
+    v: parseInt(sig.slice(128, 130), 16),
+    r: "0x" + sig.slice(0, 64),
+    s: "0x" + sig.slice(64, 128),
+  };
+}
+
 function resolveApiUrl(testnet: boolean): string {
   return (
     process.env.PAYSKILL_API_URL ??
     (testnet ? TESTNET_API_URL : MAINNET_API_URL)
   );
+}
+
+function createOwsSignTypedData(
+  ows: OwsModule,
+  walletId: string,
+  owsApiKey?: string,
+): SignTypedDataFn {
+  return async (params) => {
+    // Build EIP712Domain type from domain fields
+    const domainType: Array<{ name: string; type: string }> = [];
+    const d = params.domain;
+    if (d.name !== undefined)
+      domainType.push({ name: "name", type: "string" });
+    if (d.version !== undefined)
+      domainType.push({ name: "version", type: "string" });
+    if (d.chainId !== undefined)
+      domainType.push({ name: "chainId", type: "uint256" });
+    if (d.verifyingContract !== undefined)
+      domainType.push({ name: "verifyingContract", type: "address" });
+
+    const fullTypedData = {
+      types: {
+        EIP712Domain: domainType,
+        ...Object.fromEntries(
+          Object.entries(params.types).map(([k, v]) => [k, [...v]]),
+        ),
+      },
+      primaryType: params.primaryType,
+      domain: params.domain,
+      message: params.message,
+    };
+
+    const json = JSON.stringify(fullTypedData, (_key, v) =>
+      typeof v === "bigint" ? v.toString() : (v as unknown),
+    );
+
+    const result = ows.signTypedData(walletId, "evm", json, owsApiKey);
+
+    const sig = result.signature.startsWith("0x")
+      ? result.signature.slice(2)
+      : result.signature;
+    if (sig.length === 130) return `0x${sig}` as `0x${string}`;
+    const v = (result.recoveryId ?? 0) + 27;
+    return `0x${sig}${v.toString(16).padStart(2, "0")}` as `0x${string}`;
+  };
 }
 
 // ── Standalone discover (no wallet needed) ───────────────────────────
@@ -261,8 +365,10 @@ async function discoverImpl(
 export class Wallet {
   readonly address: string;
 
-  #key: Hex;
-  #account: PrivateKeyAccount;
+  // Signing: signTypedData works for both private key and OWS.
+  // rawKey is non-null only for private-key wallets (needed for x402 direct / EIP-3009).
+  #signTypedData: SignTypedDataFn;
+  #rawKey: Hex | null;
   #apiUrl: string;
   #basePath: string;
   #testnet: boolean;
@@ -271,9 +377,37 @@ export class Wallet {
 
   /**
    * Sync constructor. Resolves key from: privateKey arg -> PAYSKILL_KEY env -> error.
-   * For OS keychain resolution, use `await Wallet.create()` instead.
+   * For OS keychain, use `await Wallet.create()`.
+   * For OWS, use `await Wallet.fromOws({ walletId })`.
    */
   constructor(options?: WalletOptions) {
+    // Check for internal OWS init (symbol key hidden from public API)
+    const raw = options as Record<symbol, unknown> | undefined;
+    if (raw && raw[_OWS_INIT]) {
+      const init = raw as unknown as {
+        [_OWS_INIT]: true;
+        _address: string;
+        _signTypedData: SignTypedDataFn;
+        _testnet: boolean;
+        _timeout: number;
+      };
+      this.address = init._address;
+      this.#signTypedData = init._signTypedData;
+      this.#rawKey = null;
+      this.#testnet = init._testnet;
+      this.#timeout = init._timeout;
+      this.#apiUrl = resolveApiUrl(this.#testnet);
+      try {
+        this.#basePath = new URL(this.#apiUrl).pathname.replace(
+          /\/+$/,
+          "",
+        );
+      } catch {
+        this.#basePath = "";
+      }
+      return;
+    }
+
     const key = options?.privateKey ?? process.env.PAYSKILL_KEY;
     if (!key) {
       throw new PayError(
@@ -281,11 +415,12 @@ export class Wallet {
           "or use Wallet.create() to read from OS keychain.",
       );
     }
-    this.#key = normalizeKey(key);
-    this.#account = privateKeyToAccount(this.#key);
-    this.address = this.#account.address;
-    this.#testnet =
-      options?.testnet ?? !!process.env.PAYSKILL_TESTNET;
+    this.#rawKey = normalizeKey(key);
+    const account = privateKeyToAccount(this.#rawKey);
+    this.address = account.address;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.#signTypedData = (p) => account.signTypedData(p as any);
+    this.#testnet = options?.testnet ?? !!process.env.PAYSKILL_TESTNET;
     this.#timeout = options?.timeout ?? DEFAULT_TIMEOUT;
     this.#apiUrl = resolveApiUrl(this.#testnet);
     try {
@@ -310,6 +445,50 @@ export class Wallet {
     const key = process.env.PAYSKILL_KEY;
     if (!key) throw new PayError("PAYSKILL_KEY env var not set");
     return new Wallet({ privateKey: key, testnet: options?.testnet });
+  }
+
+  /** Async factory. Creates a wallet backed by an OWS (Open Wallet Standard) wallet. */
+  static async fromOws(options: OwsWalletOptions): Promise<Wallet> {
+    let owsModule: OwsModule;
+    if (options._owsModule) {
+      owsModule = options._owsModule as OwsModule;
+    } else {
+      try {
+        const moduleName = "@open-wallet-standard/core";
+        owsModule = (await import(moduleName)) as unknown as OwsModule;
+      } catch {
+        throw new PayError(
+          "@open-wallet-standard/core is not installed. " +
+            "Install it with: npm install @open-wallet-standard/core",
+        );
+      }
+    }
+
+    const walletInfo = owsModule.getWallet(options.walletId);
+    const evmAccount = walletInfo.accounts.find(
+      (a) => a.chainId === "evm" || a.chainId.startsWith("eip155:"),
+    );
+    if (!evmAccount) {
+      throw new PayError(
+        `No EVM account found in OWS wallet '${options.walletId}'. ` +
+          `Available chains: ${walletInfo.accounts.map((a) => a.chainId).join(", ") || "none"}.`,
+      );
+    }
+
+    const signFn = createOwsSignTypedData(
+      owsModule,
+      options.walletId,
+      options.owsApiKey,
+    );
+
+    // Use the internal init path through the constructor
+    return new Wallet({
+      [_OWS_INIT]: true,
+      _address: evmAccount.address,
+      _signTypedData: signFn,
+      _testnet: options.testnet ?? !!process.env.PAYSKILL_TESTNET,
+      _timeout: options.timeout ?? DEFAULT_TIMEOUT,
+    } as unknown as WalletOptions);
   }
 
   // ── Internal: contracts ──────────────────────────────────────────
@@ -351,10 +530,21 @@ export class Wallet {
     const method = (init.method ?? "GET").toUpperCase();
     const pathOnly = path.split("?")[0];
     const signPath = this.#basePath + pathOnly;
-    const headers = await buildAuthHeaders(this.#key, method, signPath, {
+    const config = {
       chainId: contracts.chainId,
       routerAddress: contracts.router,
-    });
+    };
+
+    const headers = this.#rawKey
+      ? await buildAuthHeaders(this.#rawKey, method, signPath, config)
+      : await buildAuthHeadersSigned(
+          this.address,
+          this.#signTypedData,
+          method,
+          signPath,
+          config,
+        );
+
     return fetch(`${this.#apiUrl}${path}`, {
       ...init,
       signal: init.signal ?? AbortSignal.timeout(this.#timeout),
@@ -444,19 +634,42 @@ export class Wallet {
       deadline: number;
     }>("/permit/prepare", { amount: microAmount, spender });
 
-    const signature = await this.#account.sign({
-      hash: prep.hash as `0x${string}`,
+    if (this.#rawKey) {
+      // Private key path: sign the pre-computed hash directly
+      const account = privateKeyToAccount(this.#rawKey);
+      const signature = await account.sign({
+        hash: prep.hash as `0x${string}`,
+      });
+      return { nonce: prep.nonce, deadline: prep.deadline, ...parseSig(signature) };
+    }
+
+    // OWS path: sign full EIP-2612 permit typed data
+    const signature = await this.#signTypedData({
+      domain: {
+        name: "USD Coin",
+        version: "2",
+        chainId: contracts.chainId,
+        verifyingContract: contracts.usdc as string,
+      },
+      types: {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      },
+      primaryType: "Permit",
+      message: {
+        owner: this.address,
+        spender: spender as string,
+        value: BigInt(microAmount),
+        nonce: BigInt(prep.nonce),
+        deadline: BigInt(prep.deadline),
+      },
     });
-    const sig = signature.startsWith("0x")
-      ? signature.slice(2)
-      : signature;
-    return {
-      nonce: prep.nonce,
-      deadline: prep.deadline,
-      v: parseInt(sig.slice(128, 130), 16),
-      r: "0x" + sig.slice(0, 64),
-      s: "0x" + sig.slice(64, 128),
-    };
+    return { nonce: prep.nonce, deadline: prep.deadline, ...parseSig(signature) };
   }
 
   // ── Internal: x402 ───────────────────────────────────────────────
@@ -510,9 +723,16 @@ export class Wallet {
       accepted?: Record<string, unknown>;
     },
   ): Promise<Response> {
+    if (!this.#rawKey) {
+      throw new PayError(
+        "x402 direct settlement requires a private key. " +
+          "OWS wallets only support tab settlement. " +
+          "Ask the provider to enable tab settlement, or use a private key wallet.",
+      );
+    }
     const contracts = await this.ensureContracts();
     const auth = await signTransferAuthorization(
-      this.#key,
+      this.#rawKey,
       reqs.to as Address,
       reqs.amount,
       contracts.chainId,
@@ -573,7 +793,6 @@ export class Wallet {
         reqs.amount * TAB_MULTIPLIER,
         TAB_MIN_MICRO,
       );
-      // Pre-flight balance check
       const bal = await this.balance();
       const tabDollars = toDollars(tabMicro);
       if (bal.available < tabDollars) {
