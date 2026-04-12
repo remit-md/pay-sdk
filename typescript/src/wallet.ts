@@ -146,6 +146,7 @@ interface Contracts {
   fee: Address;
   usdc: Address;
   chainId: number;
+  relayer: Address;
 }
 
 interface Permit {
@@ -356,8 +357,20 @@ async function discoverImpl(
   if (!resp.ok) {
     throw new PayServerError(`discover failed: ${resp.status}`, resp.status);
   }
-  const data = (await resp.json()) as { services: DiscoverService[] };
-  return data.services;
+  const data = (await resp.json()) as {
+    services: Array<Record<string, unknown>>;
+  };
+  return data.services.map((s) => ({
+    name: String(s.name ?? ""),
+    description: String(s.description ?? ""),
+    baseUrl: String(s.base_url ?? s.baseUrl ?? ""),
+    category: String(s.category ?? ""),
+    keywords: (s.keywords as string[]) ?? [],
+    routes: (s.routes as DiscoverService["routes"]) ?? [],
+    docsUrl: s.docs_url != null || s.docsUrl != null
+      ? String(s.docs_url ?? s.docsUrl)
+      : undefined,
+  }));
 }
 
 // ── Wallet ───────────────────────────────────────────────────────────
@@ -516,6 +529,7 @@ export class Wallet {
       fee: String(data.fee ?? "") as Address,
       usdc: String(data.usdc ?? "") as Address,
       chainId: Number(data.chain_id ?? 0),
+      relayer: String(data.relayer ?? "") as Address,
     };
     return this.#contracts;
   }
@@ -623,11 +637,16 @@ export class Wallet {
   // ── Internal: permits ────────────────────────────────────────────
 
   private async signPermit(
-    flow: "direct" | "tab",
+    flow: "direct" | "tab" | "withdraw",
     microAmount: number,
   ): Promise<Permit> {
     const contracts = await this.ensureContracts();
-    const spender = flow === "tab" ? contracts.tab : contracts.direct;
+    const spender =
+      flow === "tab"
+        ? contracts.tab
+        : flow === "withdraw"
+          ? contracts.relayer
+          : contracts.direct;
     const prep = await this.post<{
       hash: string;
       nonce: string;
@@ -1031,9 +1050,25 @@ export class Wallet {
   }
 
   async createWithdrawLink(options?: FundLinkOptions): Promise<string> {
+    // Sign a USDC permit granting the relayer allowance for the full balance.
+    const status = await this.status();
+    const microBalance = Math.round(status.balance.total * 1_000_000);
+    if (microBalance <= 0) {
+      throw new PayError("no USDC balance to create withdraw link");
+    }
+
+    const permit = await this.signPermit("withdraw", microBalance);
+
     const data = await this.post<{ url: string }>("/links/withdraw", {
       messages: options?.message ? [{ text: options.message }] : [],
       agent_name: options?.agentName,
+      permit: {
+        value: microBalance,
+        deadline: permit.deadline,
+        v: permit.v,
+        r: permit.r,
+        s: permit.s,
+      },
     });
     return data.url;
   }
