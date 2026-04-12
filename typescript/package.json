@@ -1,6 +1,6 @@
 {
   "name": "@pay-skill/sdk",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "TypeScript SDK for pay — payment infrastructure for AI agents",
   "type": "module",
   "main": "./dist/index.js",
