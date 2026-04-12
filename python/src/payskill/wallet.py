@@ -130,6 +130,7 @@ class _Contracts:
     fee: str
     usdc: str
     chain_id: int
+    relayer: str
 
 
 @dataclass
@@ -474,6 +475,7 @@ class Wallet:
             fee=str(data.get("fee", "")),
             usdc=str(data.get("usdc", "")),
             chain_id=int(data.get("chain_id", 0)),
+            relayer=str(data.get("relayer", "")),
         )
         return self._contracts
 
@@ -562,7 +564,12 @@ class Wallet:
 
     def _sign_permit(self, flow: str, micro_amount: int) -> _Permit:
         contracts = self._ensure_contracts()
-        spender = contracts.tab if flow == "tab" else contracts.direct
+        if flow == "tab":
+            spender = contracts.tab
+        elif flow == "withdraw":
+            spender = contracts.relayer
+        else:
+            spender = contracts.direct
         prep = self._post("/permit/prepare", {"amount": micro_amount, "spender": spender})
 
         if self._raw_key:
@@ -968,14 +975,37 @@ class Wallet:
         message: str | None = None,
         agent_name: str | None = None,
     ) -> str:
-        """Create a withdrawal link for withdrawing USDC."""
-        data = self._post(
-            "/links/withdraw",
-            {
-                "messages": [{"text": message}] if message else [],
-                "agent_name": agent_name,
+        """Create a withdrawal link for withdrawing USDC.
+
+        Signs a USDC EIP-2612 permit granting the relayer allowance
+        to transfer funds on behalf of the agent. The permit is stored
+        server-side and replayed when the dashboard triggers withdrawal.
+        """
+        contracts = self._ensure_contracts()
+        spender = contracts.relayer
+        if not spender:
+            raise PayError("server did not return relayer address")
+
+        # Permit for the agent's full balance (allows any withdrawal amount).
+        status = self.get_status()
+        micro_balance = int(status.balance.total * 1_000_000)
+        if micro_balance <= 0:
+            raise PayError("no USDC balance to create withdraw link")
+
+        permit = self._sign_permit("withdraw", micro_balance)
+
+        payload: dict[str, Any] = {
+            "messages": [{"text": message}] if message else [],
+            "agent_name": agent_name,
+            "permit": {
+                "value": micro_balance,
+                "deadline": permit.deadline,
+                "v": permit.v,
+                "r": permit.r,
+                "s": permit.s,
             },
-        )
+        }
+        data = self._post("/links/withdraw", payload)
         return str(data["url"])
 
     # -- Public: Webhooks -----------------------------------------------------
