@@ -1,10 +1,12 @@
 """Structured error types for the pay SDK."""
 
+from __future__ import annotations
+
 
 class PayError(Exception):
     """Base error for all pay SDK errors."""
 
-    def __init__(self, message: str, code: str | None = None) -> None:
+    def __init__(self, message: str, code: str = "pay_error") -> None:
         super().__init__(message)
         self.code = code
 
@@ -33,7 +35,15 @@ class PayServerError(PayError):
 
 
 class PayInsufficientFundsError(PayError):
-    """Insufficient USDC balance for the requested operation."""
+    """Insufficient USDC balance. Includes fund link hint for agents."""
 
-    def __init__(self, message: str = "Insufficient USDC balance") -> None:
-        super().__init__(message, code="insufficient_funds")
+    def __init__(
+        self,
+        message: str = "Insufficient USDC balance",
+        balance: float = 0,
+        required: float = 0,
+    ) -> None:
+        hint = '\nUse wallet.create_fund_link(message="Need funds") to request funding.'
+        super().__init__(message + hint, code="insufficient_funds")
+        self.balance = balance
+        self.required = required
