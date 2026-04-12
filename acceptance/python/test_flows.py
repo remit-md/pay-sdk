@@ -1,7 +1,7 @@
 """
 Pay SDK (Python) acceptance tests.
 
-All tests use real PayClient with RawKeySigner against live Base Sepolia.
+All tests use real Wallet class against live Base Sepolia.
 No mocks. No stubs.
 
 Run:
@@ -25,12 +25,17 @@ from conftest import (
     get_on_chain_balance,
     wait_for_balance_change,
 )
-from payskill import PayClient
+from payskill import Wallet
 from payskill.errors import PayValidationError
 
 
+def make_wallet(private_key: str) -> Wallet:
+    """Create a testnet Wallet with explicit key."""
+    return Wallet(private_key=private_key, testnet=True)
+
+
 class TestDirectPayment:
-    """Direct payment via PayClient.pay_direct()."""
+    """Direct payment via Wallet.send()."""
 
     def setup_method(self):
         self.contracts = get_contracts()
@@ -40,19 +45,13 @@ class TestDirectPayment:
         mint(self.agent_addr, 200)  # 200 USDC (server expects whole USDC)
         wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
 
-    def test_pay_direct_transfers_usdc(self):
-        client = PayClient(
-            api_url=API_URL,
-            signer="raw",
-            private_key=self.agent_key,
-            chain_id=84532,
-            router_address=self.contracts["router"],
-        )
+    def test_send_transfers_usdc(self):
+        wallet = make_wallet(self.agent_key)
 
         before_agent = get_on_chain_balance(self.agent_addr, self.contracts["usdc"])
         before_provider = get_on_chain_balance(self.provider_addr, self.contracts["usdc"])
 
-        result = client.pay_direct(self.provider_addr, 5_000_000, memo="acceptance")
+        result = wallet.send(self.provider_addr, 5.0, memo="acceptance")
 
         assert result.tx_hash, "should return tx_hash"
 
@@ -69,7 +68,7 @@ class TestDirectPayment:
 
 
 class TestTabLifecycle:
-    """Tab lifecycle via PayClient methods."""
+    """Tab lifecycle via Wallet methods."""
 
     def setup_method(self):
         self.contracts = get_contracts()
@@ -79,41 +78,28 @@ class TestTabLifecycle:
         mint(self.agent_addr, 200)  # 200 USDC
         wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
 
-    def test_open_charge_close(self):
-        agent_client = PayClient(
-            api_url=API_URL,
-            signer="raw",
-            private_key=self.agent_key,
-            chain_id=84532,
-            router_address=self.contracts["router"],
-        )
-        provider_client = PayClient(
-            api_url=API_URL,
-            signer="raw",
-            private_key=self.provider_key,
-            chain_id=84532,
-            router_address=self.contracts["router"],
-        )
+    def test_open_list_close(self):
+        wallet = make_wallet(self.agent_key)
 
-        # Open tab
-        tab = agent_client.open_tab(self.provider_addr, 20_000_000, 2_000_000)
-        assert tab.tab_id or tab.id, "should return tab_id or id"
+        # Open tab ($20, $2/call max)
+        tab = wallet.open_tab(self.provider_addr, 20.0, max_charge_per_call=2.0)
+        assert tab.id, "should return tab id"
 
         import time
+
         time.sleep(5)  # wait for on-chain
 
         # List tabs
-        tabs = agent_client.list_tabs()
-        tab_id = tab.tab_id or tab.id
-        assert any((t.tab_id or t.id) == tab_id for t in tabs), "tab should appear in list"
+        tabs = wallet.list_tabs()
+        assert any(t.id == tab.id for t in tabs), "tab should appear in list"
 
         # Close
-        closed = agent_client.close_tab(tab_id)
-        assert closed, "close should succeed"
+        closed = wallet.close_tab(tab.id)
+        assert closed.status == "closed", "tab should be closed"
 
 
 class TestStatus:
-    """Wallet status via PayClient.get_status()."""
+    """Wallet status via Wallet.status()."""
 
     def setup_method(self):
         self.contracts = get_contracts()
@@ -121,52 +107,50 @@ class TestStatus:
         mint(self.addr, 50)  # 50 USDC
         wait_for_balance_change(self.addr, self.contracts["usdc"], 0)
 
-    def test_get_status(self):
-        client = PayClient(
-            api_url=API_URL,
-            signer="raw",
-            private_key=self.key,
-            chain_id=84532,
-            router_address=self.contracts["router"],
-        )
-        status = client.get_status()
-        assert status.wallet or status.address, "should return wallet address"
+    def test_status(self):
+        wallet = make_wallet(self.key)
+        status = wallet.status()
+        assert status.address, "should return address"
+        assert status.balance.total >= 0
+
+    def test_balance(self):
+        wallet = make_wallet(self.key)
+        bal = wallet.balance()
+        assert bal.total >= 0
+        assert bal.available >= 0
 
 
 class TestWebhookCRUD:
-    """Webhook CRUD via PayClient methods."""
+    """Webhook CRUD via Wallet methods."""
 
     def setup_method(self):
         self.contracts = get_contracts()
         self.key, self.addr = generate_wallet()
 
     def test_register_list_delete(self):
-        client = PayClient(
-            api_url=API_URL,
-            signer="raw",
-            private_key=self.key,
-            chain_id=84532,
-            router_address=self.contracts["router"],
-        )
+        wallet = make_wallet(self.key)
 
         import time
+
         hook_url = f"https://example.com/hooks/py-test-{int(time.time())}"
 
         # Register
-        reg = client.register_webhook(hook_url, events=["payment.completed"], secret="whsec_test_acceptance_secret")
-        assert reg.webhook_id, "should return webhook_id"
+        reg = wallet.register_webhook(
+            hook_url, events=["payment.completed"], secret="whsec_test_acceptance"
+        )
+        assert reg.id, "should return webhook id"
 
         # List
-        hooks = client.list_webhooks()
-        found = any(h.webhook_id == reg.webhook_id for h in hooks)
+        hooks = wallet.list_webhooks()
+        found = any(h.id == reg.id for h in hooks)
         assert found, "webhook should appear in list"
 
         # Delete
-        client.delete_webhook(reg.webhook_id)
+        wallet.delete_webhook(reg.id)
 
         # Verify gone
-        hooks_after = client.list_webhooks()
-        not_found = all(h.webhook_id != reg.webhook_id for h in hooks_after)
+        hooks_after = wallet.list_webhooks()
+        not_found = all(h.id != reg.id for h in hooks_after)
         assert not_found, "deleted webhook should not appear"
 
 
@@ -178,25 +162,13 @@ class TestFundWithdrawLinks:
         self.key, self.addr = generate_wallet()
 
     def test_create_fund_link(self):
-        client = PayClient(
-            api_url=API_URL,
-            signer="raw",
-            private_key=self.key,
-            chain_id=84532,
-            router_address=self.contracts["router"],
-        )
-        url = client.create_fund_link()
+        wallet = make_wallet(self.key)
+        url = wallet.create_fund_link()
         assert isinstance(url, str) and len(url) > 0
 
     def test_create_withdraw_link(self):
-        client = PayClient(
-            api_url=API_URL,
-            signer="raw",
-            private_key=self.key,
-            chain_id=84532,
-            router_address=self.contracts["router"],
-        )
-        url = client.create_withdraw_link()
+        wallet = make_wallet(self.key)
+        url = wallet.create_withdraw_link()
         assert isinstance(url, str) and len(url) > 0
 
 
@@ -211,7 +183,7 @@ class TestX402Request:
         wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
 
     def test_request_handles_402_direct(self):
-        """SDK request() sees 402 with PAYMENT-REQUIRED header, pays via payDirect, retries with PAYMENT-SIGNATURE."""
+        """Wallet.request() sees 402, pays via EIP-3009, retries with PAYMENT-SIGNATURE."""
         import base64
         import json
         import threading
@@ -221,7 +193,6 @@ class TestX402Request:
 
         class X402Handler(BaseHTTPRequestHandler):
             def do_GET(self):
-                # V2: check PAYMENT-SIGNATURE header
                 sig = self.headers.get("PAYMENT-SIGNATURE", "")
                 if sig:
                     self.send_response(200)
@@ -229,7 +200,6 @@ class TestX402Request:
                     self.end_headers()
                     self.wfile.write(b'{"content":"paid"}')
                 else:
-                    # V2: return PAYMENT-REQUIRED header (base64-encoded JSON)
                     requirements = {
                         "scheme": "exact",
                         "amount": 1_000_000,
@@ -244,15 +214,17 @@ class TestX402Request:
                     self.send_header("Content-Type", "application/json")
                     self.send_header("payment-required", req_b64)
                     self.end_headers()
-                    body = json.dumps({
-                        "error": "payment_required",
-                        "message": "This resource requires payment",
-                        "requirements": requirements,
-                    })
+                    body = json.dumps(
+                        {
+                            "error": "payment_required",
+                            "message": "This resource requires payment",
+                            "requirements": requirements,
+                        }
+                    )
                     self.wfile.write(body.encode())
 
             def log_message(self, format, *args):
-                pass  # suppress logs
+                pass
 
         server = HTTPServer(("127.0.0.1", 0), X402Handler)
         port = server.server_address[1]
@@ -260,14 +232,8 @@ class TestX402Request:
         thread.start()
 
         try:
-            client = PayClient(
-                api_url=API_URL,
-                signer="raw",
-                private_key=self.agent_key,
-                chain_id=84532,
-                router_address=self.contracts["router"],
-            )
-            resp = client.request(f"http://127.0.0.1:{port}/content")
+            wallet = make_wallet(self.agent_key)
+            resp = wallet.request(f"http://127.0.0.1:{port}/content")
             assert resp.status_code == 200, f"expected 200, got {resp.status_code}"
             data = resp.json()
             assert data["content"] == "paid"
@@ -283,32 +249,17 @@ class TestErrorPaths:
         self.key, self.addr = generate_wallet()
 
     def test_bad_address_raises_validation_error(self):
-        client = PayClient(
-            api_url=API_URL,
-            signer="raw",
-            private_key=self.key,
-            chain_id=84532,
-            router_address=self.contracts["router"],
-        )
+        wallet = make_wallet(self.key)
         try:
-            client.pay_direct("not-an-address", 5_000_000)
+            wallet.send("not-an-address", 5.0)
             assert False, "should have raised"
         except (PayValidationError, ValueError, Exception):
-            pass  # Expected
+            pass
 
     def test_below_minimum_raises_error(self):
-        client = PayClient(
-            api_url=API_URL,
-            signer="raw",
-            private_key=self.key,
-            chain_id=84532,
-            router_address=self.contracts["router"],
-        )
+        wallet = make_wallet(self.key)
         try:
-            client.pay_direct(
-                "0x" + "a1" * 20,
-                500_000,  # $0.50 — below $1 min
-            )
+            wallet.send("0x" + "a1" * 20, 0.50)  # $0.50 — below $1 min
             assert False, "should have raised"
         except (PayValidationError, ValueError, Exception):
-            pass  # Expected
+            pass
