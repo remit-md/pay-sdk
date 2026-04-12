@@ -961,7 +961,7 @@ class Wallet:
         """
         contracts = self._ensure_contracts()
         max_value = 2**64 - 1
-        permit = self._sign_permit("direct", max_value)
+        permit = self._sign_permit("withdraw", max_value)
         self._post(
             "/relayer-approval",
             {
