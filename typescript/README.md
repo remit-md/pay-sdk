@@ -5,7 +5,7 @@ TypeScript SDK for [pay](https://pay-skill.com) -- payment infrastructure for AI
 ```ts
 import { Wallet } from "@pay-skill/sdk";
 
-const wallet = new Wallet();
+const wallet = await Wallet.create();  // OS keychain (same key as CLI)
 await wallet.send("0xProvider...", 5, "for API access");
 ```
 
@@ -17,33 +17,25 @@ npm install @pay-skill/sdk
 
 ## Quick Start
 
-### Zero-config (env var)
-
-Set `PAYSKILL_KEY` to your hex private key:
-
-```ts
-const wallet = new Wallet();
-const { txHash } = await wallet.send("0xRecipient...", 10);
-```
-
-### Explicit key
-
-```ts
-const wallet = new Wallet({ privateKey: "0xdead..." });
-```
-
-### OS keychain (same key as `pay` CLI)
+### OS keychain (recommended -- same key as `pay` CLI)
 
 ```ts
 const wallet = await Wallet.create();
+const { txHash } = await wallet.send("0xRecipient...", 10);
 ```
 
-### Testnet
+### Environment variable
+
+Set `PAYSKILL_KEY` to your hex private key (CI/containers):
 
 ```ts
-const wallet = new Wallet({ testnet: true });
-// or: PAYSKILL_TESTNET=1
-await wallet.mint(100); // mint $100 test USDC
+const wallet = new Wallet();  // reads PAYSKILL_KEY
+```
+
+### Explicit key (testing only)
+
+```ts
+const wallet = new Wallet({ privateKey: "0xdead..." });
 ```
 
 ### OWS (Open Wallet Standard)

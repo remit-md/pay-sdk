@@ -21,7 +21,7 @@ Requires Python 3.10+.
 ```python
 from payskill import Wallet
 
-wallet = Wallet()  # reads PAYSKILL_KEY env var
+wallet = Wallet.create()  # OS keychain (same key as CLI)
 
 # Pay another agent $5
 result = wallet.send("0xprovider...", 5.0, memo="task-42")
@@ -38,14 +38,14 @@ print(response.json())
 ## Wallet Initialization
 
 ```python
-# Zero-config (reads PAYSKILL_KEY env var)
-wallet = Wallet()
-
-# Explicit key
-wallet = Wallet(private_key="0x...")
-
-# OS keychain (reads key stored by `pay` CLI)
+# OS keychain (recommended -- same key as CLI)
 wallet = Wallet.create()
+
+# Environment variable (CI/containers)
+wallet = Wallet()  # reads PAYSKILL_KEY env var
+
+# Explicit key (testing only)
+wallet = Wallet(private_key="0x...")
 
 # Env var only
 wallet = Wallet.from_env()
