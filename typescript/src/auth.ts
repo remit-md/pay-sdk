@@ -85,32 +85,42 @@ export async function buildAuthHeaders(
 }
 
 /**
- * Build auth headers using a generic signer (Signer interface).
- * Computes the EIP-712 hash manually and delegates signing to the signer.
+ * Build auth headers using a signTypedData function.
+ * Used by OWS signers and any non-raw-key signing path.
  */
-export function buildAuthHeadersWithSigner(
-  signer: { sign(hash: Uint8Array): Uint8Array; address: string },
+export async function buildAuthHeadersSigned(
+  address: string,
+  signTypedData: (params: {
+    domain: Record<string, unknown>;
+    types: Record<string, readonly { name: string; type: string }[]>;
+    primaryType: string;
+    message: Record<string, unknown>;
+  }) => Promise<string>,
   method: string,
   path: string,
-  config: AuthConfig
-): AuthHeaders {
+  config: AuthConfig,
+): Promise<AuthHeaders> {
   const timestamp = BigInt(Math.floor(Date.now() / 1000));
   const nonce = ("0x" + randomBytes(32).toString("hex")) as Hex;
 
-  const hash = computeEip712Hash(
-    method.toUpperCase(),
-    path,
-    timestamp,
-    nonce,
-    config.chainId,
-    config.routerAddress
-  );
-
-  const sigBytes = signer.sign(hash);
-  const signature = ("0x" + Buffer.from(sigBytes).toString("hex")) as Hex;
+  const signature = await signTypedData({
+    domain: {
+      ...EIP712_DOMAIN,
+      chainId: config.chainId,
+      verifyingContract: config.routerAddress,
+    },
+    types: API_REQUEST_TYPES,
+    primaryType: "APIRequest",
+    message: {
+      method: method.toUpperCase(),
+      path,
+      timestamp,
+      nonce,
+    },
+  });
 
   return {
-    "X-Pay-Agent": signer.address,
+    "X-Pay-Agent": address,
     "X-Pay-Signature": signature,
     "X-Pay-Timestamp": timestamp.toString(),
     "X-Pay-Nonce": nonce,

@@ -1,9 +1,9 @@
-"""Tests for input validation in PayClient."""
+"""Tests for input validation helpers."""
 
 import pytest
 
-from payskill.client import _validate_address, _validate_amount
 from payskill.errors import PayValidationError
+from payskill.wallet import _to_micro, _validate_address
 
 VALID_ADDR = "0x" + "a1" * 20
 
@@ -33,21 +33,27 @@ class TestValidateAddress:
             _validate_address("")
 
 
-class TestValidateAmount:
-    def test_valid_direct_amount(self) -> None:
-        _validate_amount(1_000_000, minimum=1_000_000)
+class TestToMicro:
+    def test_dollar_amount(self) -> None:
+        assert _to_micro(1.0) == 1_000_000
 
-    def test_below_minimum(self) -> None:
-        with pytest.raises(PayValidationError, match="below minimum"):
-            _validate_amount(500_000, minimum=1_000_000)
+    def test_integer_dollar(self) -> None:
+        assert _to_micro(5) == 5_000_000
+
+    def test_micro_dict(self) -> None:
+        assert _to_micro({"micro": 5_000_000}) == 5_000_000
 
     def test_zero(self) -> None:
-        with pytest.raises(PayValidationError):
-            _validate_amount(0, minimum=1_000_000)
+        assert _to_micro(0) == 0
 
-    def test_negative(self) -> None:
-        with pytest.raises(PayValidationError):
-            _validate_amount(-1, minimum=1_000_000)
+    def test_negative_raises(self) -> None:
+        with pytest.raises(PayValidationError, match="positive"):
+            _to_micro(-1.0)
 
-    def test_exact_minimum(self) -> None:
-        _validate_amount(5_000_000, minimum=5_000_000)
+    def test_nan_raises(self) -> None:
+        with pytest.raises(PayValidationError):
+            _to_micro(float("nan"))
+
+    def test_negative_micro_raises(self) -> None:
+        with pytest.raises(PayValidationError, match="non-negative"):
+            _to_micro({"micro": -1})

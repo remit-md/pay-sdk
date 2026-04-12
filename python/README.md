@@ -1,13 +1,17 @@
-# pay-sdk
+# pay-skill
 
-Python SDK for [pay](https://pay-skill.com) — payment infrastructure for AI agents. USDC on Base.
-
-Three primitives: direct payments, tabs (pre-funded metered accounts), and x402 HTTP paywalls.
+Python SDK for [pay](https://pay-skill.com) -- payment infrastructure for AI agents. USDC on Base.
 
 ## Install
 
 ```bash
-pip install pay-sdk
+pip install pay-skill
+```
+
+Optional keychain support (reads key stored by `pay` CLI):
+
+```bash
+pip install pay-skill[keychain]
 ```
 
 Requires Python 3.10+.
@@ -15,140 +19,126 @@ Requires Python 3.10+.
 ## Quick Start
 
 ```python
-from payskill import PayClient
+from payskill import Wallet
 
-client = PayClient(signer="cli")  # uses `pay sign` subprocess
+wallet = Wallet()  # reads PAYSKILL_KEY env var
 
 # Pay another agent $5
-result = client.pay_direct("0xprovider...", 5_000_000, memo="task-42")
+result = wallet.send("0xprovider...", 5.0, memo="task-42")
 print(result.tx_hash)
 
 # Open a metered tab
-tab = client.open_tab("0xprovider...", 20_000_000, max_charge_per_call=500_000)
+tab = wallet.open_tab("0xprovider...", 20.0, max_charge_per_call=0.50)
 
 # x402 request (SDK handles payment automatically)
-response = client.request("https://api.example.com/data")
+response = wallet.request("https://api.example.com/data")
+print(response.json())
 ```
 
-All amounts are in USDC micro-units (6 decimals). `$1.00 = 1_000_000`.
-
-## API Reference
-
-### PayClient
+## Wallet Initialization
 
 ```python
-from payskill import PayClient
+# Zero-config (reads PAYSKILL_KEY env var)
+wallet = Wallet()
 
-client = PayClient(
-    api_url="https://pay-skill.com/api/v1",  # default
-    signer="cli",  # "cli", "raw", "custom", or a Signer instance
-)
+# Explicit key
+wallet = Wallet(private_key="0x...")
+
+# OS keychain (reads key stored by `pay` CLI)
+wallet = Wallet.create()
+
+# Env var only
+wallet = Wallet.from_env()
+
+# Testnet
+wallet = Wallet(testnet=True)
+# or set PAYSKILL_TESTNET=1
 ```
 
-### Direct Payment
+## Amounts
 
-One-shot USDC transfer. $1.00 minimum.
+All amounts are in dollars by default. Use `{"micro": int}` for micro-USDC precision:
 
 ```python
-result = client.pay_direct(to, amount, memo="")
-# Returns: DirectPaymentResult(tx_hash, status, amount, fee)
+wallet.send("0x...", 5.0)                # $5.00
+wallet.send("0x...", {"micro": 5000000}) # $5.00 (micro-USDC)
+wallet.open_tab("0x...", 20.0, 0.10)     # $20 tab, $0.10/call max
 ```
 
-### Tab Management
-
-Pre-funded metered account. $5.00 minimum to open.
+## All Methods
 
 ```python
-# Open
-tab = client.open_tab(provider, amount, max_charge_per_call)
+# Direct payment
+result = wallet.send(to, amount, memo?)
 
-# Query
-tabs = client.list_tabs()
-tab = client.get_tab(tab_id)
+# Tabs
+tab = wallet.open_tab(provider, amount, max_charge_per_call)
+tab = wallet.close_tab(tab_id)
+tab = wallet.top_up_tab(tab_id, amount)
+tabs = wallet.list_tabs()
+tab = wallet.get_tab(tab_id)
+charge = wallet.charge_tab(tab_id, amount)
 
-# Top up (no extra activation fee)
-tab = client.top_up_tab(tab_id, amount)
+# x402 paid HTTP
+response = wallet.request(url, method=, body=, headers=)
 
-# Close (either party, unilateral)
-tab = client.close_tab(tab_id)
-```
+# Wallet
+bal = wallet.balance()    # Balance(total, locked, available)
+st = wallet.status()      # Status(address, balance, open_tabs)
 
-Returns `Tab(tab_id, provider, amount, balance_remaining, total_charged, charge_count, max_charge_per_call, status)`.
+# Discovery (no auth needed)
+services = wallet.discover("weather")
+# or standalone:
+from payskill import discover
+services = discover("weather")
 
-### x402 Requests
+# Funding
+url = wallet.create_fund_link(message="Need funds")
+url = wallet.create_withdraw_link()
 
-Transparent HTTP 402 handling. The SDK detects `402 Payment Required`, pays (via direct or tab), and retries.
+# Webhooks
+wh = wallet.register_webhook(url, events=["payment.completed"])
+webhooks = wallet.list_webhooks()
+wallet.delete_webhook(webhook_id)
 
-```python
-response = client.request(url, method="GET", body=None, headers=None)
-# Returns: httpx.Response
-```
-
-If the provider requires tab settlement, the SDK auto-opens a tab at 10x the per-call price (minimum $5).
-
-### Wallet
-
-```python
-status = client.get_status()
-# Returns: StatusResponse(address, balance, open_tabs)
-```
-
-### Webhooks
-
-```python
-wh = client.register_webhook(url, events=["tab.opened"], secret="whsec_...")
-webhooks = client.list_webhooks()
-client.delete_webhook(webhook_id)
-```
-
-### Funding
-
-```python
-link = client.create_fund_link(amount=10_000_000)   # Coinbase Onramp
-link = client.create_withdraw_link(amount=5_000_000)
-```
-
-## Signer Modes
-
-| Mode | Usage | When |
-|------|-------|------|
-| `"cli"` | Subprocess call to `pay sign` | Default. Key in OS keychain. |
-| `"raw"` | `PAYSKILL_KEY` env var | Dev/testing only. |
-| `"custom"` | Your own callback | Custom key management. |
-
-```python
-# CLI signer (default)
-client = PayClient(signer="cli")
-
-# Raw key (dev only)
-client = PayClient(signer="raw", key="0xdead...")
-
-# Custom callback
-from payskill.signer import CallbackSigner
-signer = CallbackSigner(callback=lambda hash_bytes: my_sign(hash_bytes))
-client = PayClient(signer=signer)
+# Testnet
+result = wallet.mint(100)  # mint $100 testnet USDC
 ```
 
 ## Error Handling
 
 ```python
-from payskill.errors import (
-    PayError,                  # Base class
-    PayValidationError,        # Bad input (has .field)
-    PayNetworkError,           # Connection failed
-    PayServerError,            # Server returned error (has .status_code)
-    PayInsufficientFundsError, # Not enough USDC
+from payskill import (
+    PayError,
+    PayValidationError,
+    PayNetworkError,
+    PayServerError,
+    PayInsufficientFundsError,
 )
+
+try:
+    wallet.send("0x...", 5.0)
+except PayInsufficientFundsError as e:
+    print(e.balance, e.required)
+    url = wallet.create_fund_link(message="Need funds")
+except PayValidationError as e:
+    print(e.field)  # which field failed
+except PayServerError as e:
+    print(e.status_code)
+except PayNetworkError:
+    print("Server unreachable")
 ```
 
-## Configuration
+## OWS (Open Wallet Standard)
 
-| Env Var | Purpose |
-|---------|---------|
-| `PAYSKILL_KEY` | Private key for raw signer mode |
+```python
+pip install pay-skill[ows]
 
-The API URL is configurable via the `api_url` parameter. Default: `https://pay-skill.com/api/v1`.
+wallet = Wallet.from_ows(wallet_id="my-agent")
+```
 
-## License
+## Links
 
-MIT
+- [Documentation](https://pay-skill.com/docs/)
+- [TypeScript SDK](https://www.npmjs.com/package/@pay-skill/sdk)
+- [CLI](https://github.com/pay-skill/cli)
