@@ -1041,52 +1041,32 @@ export class Wallet {
 
   // ── Public: Funding ──────────────────────────────────────────────
 
+  private async ensureWithdrawApproved(): Promise<void> {
+    const maxValue = Number.MAX_SAFE_INTEGER;
+    const permit = await this.signPermit("direct", maxValue);
+    await this.post("/relayer-approval", {
+      value: maxValue,
+      deadline: permit.deadline,
+      v: permit.v,
+      r: permit.r,
+      s: permit.s,
+    });
+  }
+
   async createFundLink(options?: FundLinkOptions): Promise<string> {
-    // Sign permit so dashboard withdraw tab works from any link.
-    const payload: Record<string, unknown> = {
+    await this.ensureWithdrawApproved();
+    const data = await this.post<{ url: string }>("/links/fund", {
       messages: options?.message ? [{ text: options.message }] : [],
       agent_name: options?.agentName,
-    };
-    try {
-      const st = await this.status();
-      const microBalance = Math.round(st.balance.total * 1_000_000);
-      if (microBalance > 0) {
-        const permit = await this.signPermit("withdraw", microBalance);
-        payload.permit = {
-          value: microBalance,
-          deadline: permit.deadline,
-          v: permit.v,
-          r: permit.r,
-          s: permit.s,
-        };
-      }
-    } catch {
-      // Best effort — fund link still works without permit
-    }
-    const data = await this.post<{ url: string }>("/links/fund", payload);
+    });
     return data.url;
   }
 
   async createWithdrawLink(options?: FundLinkOptions): Promise<string> {
-    // Sign a USDC permit granting the relayer allowance for the full balance.
-    const status = await this.status();
-    const microBalance = Math.round(status.balance.total * 1_000_000);
-    if (microBalance <= 0) {
-      throw new PayError("no USDC balance to create withdraw link");
-    }
-
-    const permit = await this.signPermit("withdraw", microBalance);
-
+    await this.ensureWithdrawApproved();
     const data = await this.post<{ url: string }>("/links/withdraw", {
       messages: options?.message ? [{ text: options.message }] : [],
       agent_name: options?.agentName,
-      permit: {
-        value: microBalance,
-        deadline: permit.deadline,
-        v: permit.v,
-        r: permit.r,
-        s: permit.s,
-      },
     });
     return data.url;
   }

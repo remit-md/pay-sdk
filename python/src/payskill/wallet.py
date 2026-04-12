@@ -953,45 +953,41 @@ class Wallet:
 
     # -- Public: Funding ------------------------------------------------------
 
+    def _ensure_withdraw_approved(self) -> None:
+        """Ensure PayDirect contract has a stored approval for this wallet.
+
+        Signs a max-value permit (off-chain, free) and stores it server-side.
+        The permit is submitted on-chain only at first withdrawal.
+        """
+        contracts = self._ensure_contracts()
+        max_value = 2**64 - 1
+        permit = self._sign_permit("direct", max_value)
+        self._post(
+            "/relayer-approval",
+            {
+                "value": max_value,
+                "deadline": permit.deadline,
+                "v": permit.v,
+                "r": permit.r,
+                "s": permit.s,
+            },
+        )
+
     def create_fund_link(
         self,
         *,
         message: str | None = None,
         agent_name: str | None = None,
     ) -> str:
-        """Create a funding link for depositing USDC.
-
-        Also signs a USDC permit so the dashboard withdraw tab works
-        from any link (fund or withdraw).
-        """
-        contracts = self._ensure_contracts()
-        spender = contracts.relayer
-
-        # Sign permit for current balance (may be zero for new wallets).
-        permit_data = None
-        if spender:
-            try:
-                status = self.get_status()
-                micro_balance = int(status.balance.total * 1_000_000)
-                if micro_balance > 0:
-                    permit = self._sign_permit("withdraw", micro_balance)
-                    permit_data = {
-                        "value": micro_balance,
-                        "deadline": permit.deadline,
-                        "v": permit.v,
-                        "r": permit.r,
-                        "s": permit.s,
-                    }
-            except Exception:  # noqa: S110 — best effort
-                pass
-
-        payload: dict[str, Any] = {
-            "messages": [{"text": message}] if message else [],
-            "agent_name": agent_name,
-        }
-        if permit_data:
-            payload["permit"] = permit_data
-        data = self._post("/links/fund", payload)
+        """Create a funding link for depositing USDC."""
+        self._ensure_withdraw_approved()
+        data = self._post(
+            "/links/fund",
+            {
+                "messages": [{"text": message}] if message else [],
+                "agent_name": agent_name,
+            },
+        )
         return str(data["url"])
 
     def create_withdraw_link(
@@ -1000,37 +996,15 @@ class Wallet:
         message: str | None = None,
         agent_name: str | None = None,
     ) -> str:
-        """Create a withdrawal link for withdrawing USDC.
-
-        Signs a USDC EIP-2612 permit granting the relayer allowance
-        to transfer funds on behalf of the agent. The permit is stored
-        server-side and replayed when the dashboard triggers withdrawal.
-        """
-        contracts = self._ensure_contracts()
-        spender = contracts.relayer
-        if not spender:
-            raise PayError("server did not return relayer address")
-
-        # Permit for the agent's full balance (allows any withdrawal amount).
-        status = self.get_status()
-        micro_balance = int(status.balance.total * 1_000_000)
-        if micro_balance <= 0:
-            raise PayError("no USDC balance to create withdraw link")
-
-        permit = self._sign_permit("withdraw", micro_balance)
-
-        payload: dict[str, Any] = {
-            "messages": [{"text": message}] if message else [],
-            "agent_name": agent_name,
-            "permit": {
-                "value": micro_balance,
-                "deadline": permit.deadline,
-                "v": permit.v,
-                "r": permit.r,
-                "s": permit.s,
+        """Create a withdrawal link for withdrawing USDC."""
+        self._ensure_withdraw_approved()
+        data = self._post(
+            "/links/withdraw",
+            {
+                "messages": [{"text": message}] if message else [],
+                "agent_name": agent_name,
             },
-        }
-        data = self._post("/links/withdraw", payload)
+        )
         return str(data["url"])
 
     # -- Public: Webhooks -----------------------------------------------------
