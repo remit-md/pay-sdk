@@ -1043,7 +1043,7 @@ export class Wallet {
 
   private async ensureWithdrawApproved(): Promise<void> {
     const maxValue = Number.MAX_SAFE_INTEGER;
-    const permit = await this.signPermit("direct", maxValue);
+    const permit = await this.signPermit("withdraw", maxValue);
     await this.post("/relayer-approval", {
       value: maxValue,
       deadline: permit.deadline,
