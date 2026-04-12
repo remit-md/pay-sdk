@@ -39,10 +39,17 @@ export class PayServerError extends PayError {
   }
 }
 
-/** Insufficient USDC balance. */
+/** Insufficient USDC balance. Includes fund link hint for agents. */
 export class PayInsufficientFundsError extends PayError {
-  constructor(message = "Insufficient USDC balance") {
-    super(message, "insufficient_funds");
+  readonly balance: number;
+  readonly required: number;
+
+  constructor(message: string, balance = 0, required = 0) {
+    const hint =
+      '\nUse wallet.createFundLink({ message: "Need funds" }) to request funding.';
+    super(message + hint, "insufficient_funds");
     this.name = "PayInsufficientFundsError";
+    this.balance = balance;
+    this.required = required;
   }
 }
