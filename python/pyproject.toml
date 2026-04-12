@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pay-skill"
-version = "0.1.12"
+version = "0.1.13"
 description = "Python SDK for pay -- payment infrastructure for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
