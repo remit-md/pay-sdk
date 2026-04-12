@@ -344,7 +344,7 @@ class Wallet:
     def __enter__(self) -> Wallet:
         return self
 
-    def __exit__(self, *args: Any) -> None:
+    def __exit__(self, *_args: Any) -> None:
         self.close()
 
     @classmethod
