@@ -959,14 +959,35 @@ class Wallet:
         message: str | None = None,
         agent_name: str | None = None,
     ) -> str:
-        """Create a funding link for depositing USDC."""
-        data = self._post(
-            "/links/fund",
-            {
-                "messages": [{"text": message}] if message else [],
-                "agent_name": agent_name,
-            },
-        )
+        """Create a funding link for depositing USDC.
+
+        Also signs a USDC permit so the dashboard withdraw tab works
+        from any link (fund or withdraw).
+        """
+        contracts = self._ensure_contracts()
+        spender = contracts.relayer
+
+        # Sign permit for current balance (may be zero for new wallets).
+        permit_data = None
+        if spender:
+            try:
+                status = self.get_status()
+                micro_balance = int(status.balance.total * 1_000_000)
+                if micro_balance > 0:
+                    permit = self._sign_permit("withdraw", micro_balance)
+                    permit_data = {
+                        "value": micro_balance,
+                        "deadline": permit.deadline,
+                        "v": permit.v,
+                        "r": permit.r,
+                        "s": permit.s,
+                    }
+            except Exception:  # noqa: S110 — best effort
+                pass
+
+        if permit_data:
+            payload["permit"] = permit_data
+        data = self._post("/links/fund", payload)
         return str(data["url"])
 
     def create_withdraw_link(
