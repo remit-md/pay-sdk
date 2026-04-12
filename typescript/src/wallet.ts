@@ -1042,10 +1042,28 @@ export class Wallet {
   // ── Public: Funding ──────────────────────────────────────────────
 
   async createFundLink(options?: FundLinkOptions): Promise<string> {
-    const data = await this.post<{ url: string }>("/links/fund", {
+    // Sign permit so dashboard withdraw tab works from any link.
+    const payload: Record<string, unknown> = {
       messages: options?.message ? [{ text: options.message }] : [],
       agent_name: options?.agentName,
-    });
+    };
+    try {
+      const st = await this.status();
+      const microBalance = Math.round(st.balance.total * 1_000_000);
+      if (microBalance > 0) {
+        const permit = await this.signPermit("withdraw", microBalance);
+        payload.permit = {
+          value: microBalance,
+          deadline: permit.deadline,
+          v: permit.v,
+          r: permit.r,
+          s: permit.s,
+        };
+      }
+    } catch {
+      // Best effort — fund link still works without permit
+    }
+    const data = await this.post<{ url: string }>("/links/fund", payload);
     return data.url;
   }
 
