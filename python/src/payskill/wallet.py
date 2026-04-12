@@ -985,6 +985,10 @@ class Wallet:
             except Exception:  # noqa: S110 — best effort
                 pass
 
+        payload: dict[str, Any] = {
+            "messages": [{"text": message}] if message else [],
+            "agent_name": agent_name,
+        }
         if permit_data:
             payload["permit"] = permit_data
         data = self._post("/links/fund", payload)
