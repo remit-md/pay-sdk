@@ -477,7 +477,14 @@ export class Wallet {
       }
     }
 
-    const walletInfo = owsModule.getWallet(options.walletId);
+    let walletInfo;
+    try {
+      walletInfo = owsModule.getWallet(options.walletId);
+    } catch (e) {
+      throw new PayError(
+        `Failed to get OWS wallet '${options.walletId}': ${e instanceof Error ? e.message : e}`,
+      );
+    }
     const evmAccount = walletInfo.accounts.find(
       (a) => a.chainId === "evm" || a.chainId.startsWith("eip155:"),
     );

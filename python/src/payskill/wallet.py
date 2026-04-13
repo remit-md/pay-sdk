@@ -959,7 +959,7 @@ class Wallet:
         Signs a max-value permit (off-chain, free) and stores it server-side.
         The permit is submitted on-chain only at first withdrawal.
         """
-        contracts = self._ensure_contracts()
+        self._ensure_contracts()
         max_value = 2**64 - 1
         permit = self._sign_permit("withdraw", max_value)
         self._post(
