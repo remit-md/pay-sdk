@@ -40,7 +40,7 @@ jobs:
         # No continue-on-error — failures must be investigated and fixed
         env:
           PAYSKILL_TESTNET_KEY: ${{ secrets.PAYSKILL_TESTNET_KEY }}
-          PAYSKILL_TESTNET_URL: http://204.168.133.111:3001/api/v1
+          PAYSKILL_TESTNET_URL: https://testnet.pay-skill.com/api/v1
         run: cd python && pytest -v -m "e2e" --timeout=60
 
   typescript:
@@ -71,5 +71,5 @@ jobs:
         # No continue-on-error — failures must be investigated and fixed
         env:
           PAYSKILL_TESTNET_KEY: ${{ secrets.PAYSKILL_TESTNET_KEY }}
-          PAYSKILL_TESTNET_URL: http://204.168.133.111:3001/api/v1
+          PAYSKILL_TESTNET_URL: https://testnet.pay-skill.com/api/v1
         run: cd typescript && node --import tsx --test tests/test_e2e.ts
