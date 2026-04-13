@@ -1039,9 +1039,10 @@ class Wallet:
         """Mint testnet USDC. Only available on testnet."""
         if not self._testnet:
             raise PayError("mint is only available on testnet")
-        micro = _to_micro(amount)
-        raw = self._post("/mint", {"amount": micro})
+        # Server expects whole USDC (not micro) and wallet address
+        dollars = amount if isinstance(amount, (int, float)) else _to_dollars(_to_micro(amount))
+        raw = self._post("/mint", {"wallet": self.address, "amount": int(dollars)})
         return MintResult(
             tx_hash=raw.get("tx_hash", ""),
-            amount=_to_dollars(raw.get("amount", 0)),
+            amount=raw.get("amount", 0),
         )

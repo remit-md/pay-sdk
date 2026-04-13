@@ -1156,12 +1156,13 @@ export class Wallet {
     if (!this.#testnet) {
       throw new PayError("mint is only available on testnet");
     }
-    const micro = toMicro(amount);
+    // Server expects whole USDC (not micro) and wallet address
+    const dollars = typeof amount === "number" ? amount : toDollars(toMicro(amount));
     const raw = await this.post<{ tx_hash: string; amount: number }>(
       "/mint",
-      { amount: micro },
+      { wallet: this.address, amount: dollars },
     );
-    return { txHash: raw.tx_hash, amount: toDollars(raw.amount) };
+    return { txHash: raw.tx_hash, amount: raw.amount };
   }
 }
 

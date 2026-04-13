@@ -433,14 +433,13 @@ class TestMint:
     def test_mint_testnet(self, wallet):
         transport = mock_transport(
             [
-                (200, CONTRACTS_RESPONSE),
-                (200, {"tx_hash": "0x" + "ee" * 32, "amount": 100_000_000}),
+                (200, {"tx_hash": "0x" + "ee" * 32, "amount": 100}),
             ]
         )
         wallet._client = httpx.Client(transport=transport)
         result = wallet.mint(100)
         assert isinstance(result, MintResult)
-        assert result.amount == 100.0
+        assert result.amount == 100
 
     def test_mint_mainnet_raises(self):
         w = Wallet(private_key=TEST_KEY, testnet=False)
