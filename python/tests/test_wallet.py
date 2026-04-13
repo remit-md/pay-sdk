@@ -34,7 +34,14 @@ CONTRACTS_RESPONSE = {
     "direct": "0x3333333333333333333333333333333333333333",
     "fee": "0x4444444444444444444444444444444444444444",
     "usdc": "0x5555555555555555555555555555555555555555",
+    "relayer": "0x6666666666666666666666666666666666666666",
     "chain_id": 84532,
+}
+
+PERMIT_PREPARE_RESPONSE = {
+    "hash": "0x" + "aa" * 32,
+    "nonce": "1",
+    "deadline": 9999999999,
 }
 
 
@@ -399,6 +406,8 @@ class TestFunding:
         transport = mock_transport(
             [
                 (200, CONTRACTS_RESPONSE),
+                (200, PERMIT_PREPARE_RESPONSE),
+                (200, {}),
                 (200, {"url": "https://pay-skill.com/fund/abc123"}),
             ]
         )
@@ -410,6 +419,8 @@ class TestFunding:
         transport = mock_transport(
             [
                 (200, CONTRACTS_RESPONSE),
+                (200, PERMIT_PREPARE_RESPONSE),
+                (200, {}),
                 (200, {"url": "https://pay-skill.com/withdraw/abc123"}),
             ]
         )
