@@ -4,6 +4,7 @@ export {
   PayNetworkError,
   PayServerError,
   PayInsufficientFundsError,
+  PayBudgetExceededError,
 } from "./errors.js";
 
 export { Wallet, discover } from "./wallet.js";
@@ -22,3 +23,6 @@ export type {
   WebhookRegistration,
   MintResult,
 } from "./wallet.js";
+
+export { createPayFetch, register } from "./fetch.js";
+export type { PayFetchOptions, PaymentEvent } from "./fetch.js";

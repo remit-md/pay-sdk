@@ -53,3 +53,26 @@ export class PayInsufficientFundsError extends PayError {
     this.required = required;
   }
 }
+
+/** Budget limit exceeded. Thrown by createPayFetch when a payment would exceed configured limits. */
+export class PayBudgetExceededError extends PayError {
+  /** Dollars already spent this session. */
+  readonly spent: number;
+  /** The dollar amount that was requested. */
+  readonly requested: number;
+  /** The budget limit that was hit ("perRequest" or "total"). */
+  readonly limitType: "perRequest" | "total";
+
+  constructor(
+    message: string,
+    spent: number,
+    requested: number,
+    limitType: "perRequest" | "total",
+  ) {
+    super(message, "budget_exceeded");
+    this.name = "PayBudgetExceededError";
+    this.spent = spent;
+    this.requested = requested;
+    this.limitType = limitType;
+  }
+}
