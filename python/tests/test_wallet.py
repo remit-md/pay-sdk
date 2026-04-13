@@ -433,6 +433,7 @@ class TestMint:
     def test_mint_testnet(self, wallet):
         transport = mock_transport(
             [
+                (200, CONTRACTS_RESPONSE),
                 (200, {"tx_hash": "0x" + "ee" * 32, "amount": 100}),
             ]
         )
