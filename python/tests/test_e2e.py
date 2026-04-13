@@ -24,7 +24,6 @@ from payskill.errors import PayValidationError
 
 # Any truthy value enables E2E — we generate fresh keys
 E2E_ENABLED = bool(os.environ.get("PAYSKILL_TESTNET_KEY", ""))
-API_URL = os.environ.get("PAYSKILL_TESTNET_URL", "https://testnet.pay-skill.com/api/v1")
 
 skip_no_key = pytest.mark.skipif(not E2E_ENABLED, reason="PAYSKILL_TESTNET_KEY not set")
 
