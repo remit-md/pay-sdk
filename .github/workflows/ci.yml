@@ -37,7 +37,7 @@ jobs:
         run: cd python && pytest -v --cov=payskill --cov-fail-under=40 --cov-report=term-missing -m "not e2e"
       - name: E2E tests (testnet)
         if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
+        # No continue-on-error — failures must be investigated and fixed
         env:
           PAYSKILL_TESTNET_KEY: ${{ secrets.PAYSKILL_TESTNET_KEY }}
           PAYSKILL_TESTNET_URL: http://204.168.133.111:3001/api/v1
@@ -68,7 +68,7 @@ jobs:
         run: cd typescript && pnpm test
       - name: E2E tests (testnet)
         if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
+        # No continue-on-error — failures must be investigated and fixed
         env:
           PAYSKILL_TESTNET_KEY: ${{ secrets.PAYSKILL_TESTNET_KEY }}
           PAYSKILL_TESTNET_URL: http://204.168.133.111:3001/api/v1
