@@ -1,27 +1,42 @@
 /**
  * E2E acceptance tests — run against live testnet.
  *
- * Skip unless PAYSKILL_TESTNET_KEY is set.
+ * Skip unless PAYSKILL_TESTNET_KEY is set (any truthy value).
+ * Each run generates fresh wallets and mints USDC to avoid rate-limit
+ * collisions with prior runs.
  *
  * Usage:
- *   PAYSKILL_TESTNET_KEY=0xdead... node --import tsx --test tests/test_e2e.ts
+ *   PAYSKILL_TESTNET_KEY=1 node --import tsx --test tests/test_e2e.ts
  */
 
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { Wallet, PayValidationError } from "../src/index.js";
 
-const TESTNET_KEY = process.env.PAYSKILL_TESTNET_KEY ?? "";
-const skip = !TESTNET_KEY;
+const skip = !process.env.PAYSKILL_TESTNET_KEY;
 
-function makeWallet(): Wallet {
-  return new Wallet({ privateKey: TESTNET_KEY, testnet: true });
+function generateKey(): string {
+  return "0x" + randomBytes(32).toString("hex");
 }
+
+describe("E2E: Mint testnet USDC", { skip }, () => {
+  it("mints $10 USDC to a fresh wallet", async () => {
+    const wallet = new Wallet({ privateKey: generateKey(), testnet: true });
+    const result = await wallet.mint(10);
+    assert.ok(result.txHash);
+    assert.equal(result.amount, 10);
+  });
+});
 
 describe("E2E: Status + Balance", { skip }, () => {
   let wallet: Wallet;
-  before(() => { wallet = makeWallet(); });
+  before(async () => {
+    wallet = new Wallet({ privateKey: generateKey(), testnet: true });
+    await wallet.mint(50);
+    // Wait for on-chain confirmation
+    await new Promise((r) => setTimeout(r, 5000));
+  });
 
   it("status returns valid response", async () => {
     const status = await wallet.status();
@@ -39,21 +54,12 @@ describe("E2E: Status + Balance", { skip }, () => {
   });
 });
 
-describe("E2E: Mint testnet USDC", { skip }, () => {
-  let wallet: Wallet;
-  before(() => { wallet = makeWallet(); });
-
-  it("mints $10 USDC", async () => {
-    const result = await wallet.mint(10);
-    assert.ok(result.txHash);
-    assert.equal(result.amount, 10);
-  });
-});
-
 describe("E2E: Webhook CRUD", { skip }, () => {
   let wallet: Wallet;
   let hookId = "";
-  before(() => { wallet = makeWallet(); });
+  before(async () => {
+    wallet = new Wallet({ privateKey: generateKey(), testnet: true });
+  });
 
   it("registers a webhook", async () => {
     const slug = randomUUID().slice(0, 8);
@@ -81,7 +87,9 @@ describe("E2E: Webhook CRUD", { skip }, () => {
 
 describe("E2E: Validation still works", { skip }, () => {
   let wallet: Wallet;
-  before(() => { wallet = makeWallet(); });
+  before(() => {
+    wallet = new Wallet({ privateKey: generateKey(), testnet: true });
+  });
 
   it("rejects invalid address", async () => {
     await assert.rejects(

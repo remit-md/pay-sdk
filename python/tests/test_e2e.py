@@ -3,13 +3,17 @@
 Skip unless PAYSKILL_TESTNET_KEY is set. These hit the real testnet server
 and exercise the full SDK -> server -> chain round-trip.
 
+Each run generates a fresh wallet and mints USDC to it, avoiding
+rate-limit collisions with prior runs.
+
 Usage:
-    PAYSKILL_TESTNET_KEY=0xdead... pytest tests/test_e2e.py -v
+    PAYSKILL_TESTNET_KEY=1 pytest tests/test_e2e.py -v
 """
 
 from __future__ import annotations
 
 import os
+import time
 import uuid
 from collections.abc import Generator
 
@@ -18,20 +22,39 @@ import pytest
 from payskill import Wallet
 from payskill.errors import PayValidationError
 
-TESTNET_KEY = os.environ.get("PAYSKILL_TESTNET_KEY", "")
+# Any truthy value enables E2E — we generate fresh keys
+E2E_ENABLED = bool(os.environ.get("PAYSKILL_TESTNET_KEY", ""))
+API_URL = os.environ.get("PAYSKILL_TESTNET_URL", "https://testnet.pay-skill.com/api/v1")
 
-# Second wallet for provider-side operations
-PROVIDER_ADDR = os.environ.get("PAYSKILL_TESTNET_PROVIDER", "0x" + "b2" * 20)
-
-skip_no_key = pytest.mark.skipif(not TESTNET_KEY, reason="PAYSKILL_TESTNET_KEY not set")
+skip_no_key = pytest.mark.skipif(not E2E_ENABLED, reason="PAYSKILL_TESTNET_KEY not set")
 
 # Mark all tests in this module as e2e
 pytestmark = [pytest.mark.e2e, pytest.mark.timeout(60)]
 
 
+def _generate_key() -> str:
+    """Generate a random 32-byte hex private key."""
+    return "0x" + os.urandom(32).hex()
+
+
+# Module-scoped fresh wallets
+_agent_key = _generate_key()
+_provider_key = _generate_key()
+
+
 @pytest.fixture(scope="module")
 def wallet() -> Generator[Wallet, None, None]:
-    w = Wallet(private_key=TESTNET_KEY, testnet=True)
+    w = Wallet(private_key=_agent_key, testnet=True)
+    # Mint USDC to fresh wallet (no rate limit since it's a new address)
+    w.mint(100)
+    time.sleep(5)  # wait for on-chain confirmation
+    yield w
+    w.close()
+
+
+@pytest.fixture(scope="module")
+def provider() -> Generator[Wallet, None, None]:
+    w = Wallet(private_key=_provider_key, testnet=True)
     yield w
     w.close()
 
@@ -66,11 +89,11 @@ class TestDirectPayment:
             wallet.send("not-an-address", 5.0)
 
         with pytest.raises(PayValidationError, match="below minimum"):
-            wallet.send(PROVIDER_ADDR, 0.50)
+            wallet.send("0x" + "b2" * 20, 0.50)
 
-    def test_direct_payment(self, wallet: Wallet) -> None:
+    def test_direct_payment(self, wallet: Wallet, provider: Wallet) -> None:
         """Send $1 USDC via direct payment."""
-        result = wallet.send(PROVIDER_ADDR, 1.0, memo="e2e-test")
+        result = wallet.send(provider.address, 1.0, memo="e2e-test")
         assert result.tx_hash
         assert result.status in ("confirmed", "pending")
         assert result.amount == 1.0
@@ -86,11 +109,11 @@ class TestTabLifecycle:
 
     _tab_id: str = ""
 
-    def test_01_open_tab(self, wallet: Wallet) -> None:
+    def test_01_open_tab(self, wallet: Wallet, provider: Wallet) -> None:
         """Open a $5 tab with provider."""
-        tab = wallet.open_tab(PROVIDER_ADDR, 5.0, max_charge_per_call=0.50)
+        tab = wallet.open_tab(provider.address, 5.0, max_charge_per_call=0.50)
         assert tab.id
-        assert tab.provider.lower() == PROVIDER_ADDR.lower()
+        assert tab.provider.lower() == provider.address.lower()
         assert tab.status == "open"
         assert tab.charge_count == 0
         TestTabLifecycle._tab_id = tab.id
@@ -179,8 +202,13 @@ class TestFunding:
 
 @skip_no_key
 class TestMint:
-    def test_mint(self, wallet: Wallet) -> None:
-        """Mint testnet USDC."""
-        result = wallet.mint(10)
-        assert result.tx_hash
-        assert result.amount == 10.0
+    def test_mint(self) -> None:
+        """Mint testnet USDC to a fresh wallet."""
+        key = _generate_key()
+        w = Wallet(private_key=key, testnet=True)
+        try:
+            result = w.mint(10)
+            assert result.tx_hash
+            assert result.amount == 10
+        finally:
+            w.close()
