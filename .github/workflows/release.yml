@@ -18,8 +18,38 @@ permissions:
   id-token: write
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python lint + test
+        run: |
+          cd python && pip install -e ".[dev]"
+          ruff check .
+          ruff format --check .
+          pytest -v -m "not e2e"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: TypeScript lint + test
+        run: |
+          cd typescript && pnpm install --frozen-lockfile
+          pnpm tsc --noEmit
+          pnpm test
+
   typescript:
     runs-on: ubuntu-latest
+    needs: verify
     defaults:
       run:
         working-directory: typescript
@@ -50,6 +80,7 @@ jobs:
 
   python:
     runs-on: ubuntu-latest
+    needs: verify
     defaults:
       run:
         working-directory: python
