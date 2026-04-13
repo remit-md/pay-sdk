@@ -1,8 +1,8 @@
 /**
  * Pay SDK (TypeScript) acceptance tests.
  *
- * All tests use real PayClient / Wallet with PrivateKeySigner
- * against live Base Sepolia. No mocks. No stubs.
+ * All tests use Wallet with private key against live Base Sepolia.
+ * No mocks. No stubs.
  *
  * Env vars:
  *   ACCEPTANCE_API_URL — testnet server (default: https://testnet.pay-skill.com/api/v1)
@@ -13,9 +13,7 @@ import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import { generatePrivateKey } from "viem/accounts";
 
-// Import from SDK source (relative path, resolved via tsx)
 import {
-  PayClient,
   PayValidationError,
   PayServerError,
   Wallet,
@@ -27,7 +25,6 @@ const API_URL =
   process.env["ACCEPTANCE_API_URL"] || "https://testnet.pay-skill.com/api/v1";
 const RPC_URL =
   process.env["ACCEPTANCE_RPC_URL"] || "https://sepolia.base.org";
-const CHAIN_ID = 84532;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -109,42 +106,38 @@ describe("SDK Acceptance — TypeScript", () => {
 
     agentWallet = new Wallet({
       privateKey: agentKey,
-      chain: "base-sepolia",
-      apiUrl: API_URL,
-      routerAddress: contracts.router,
+      testnet: true,
     });
 
     providerWallet = new Wallet({
       privateKey: providerKey,
-      chain: "base-sepolia",
-      apiUrl: API_URL,
-      routerAddress: contracts.router,
+      testnet: true,
     });
 
-    // Fund agent with 200 USDC (server expects whole USDC, not micro)
+    // Fund agent with 200 USDC
     await mint(agentWallet.address, 200);
     await waitForChange(agentWallet.address, contracts.usdc, 0);
   });
 
   describe("Status + Balance", () => {
-    it("getStatus returns balance and wallet", async () => {
+    it("balance returns wallet balance", async () => {
       const bal = await agentWallet.balance();
-      assert.ok(bal > 0, `balance should be > 0, got ${bal}`);
+      assert.ok(bal.available > 0, `balance should be > 0, got ${bal.available}`);
     });
   });
 
   describe("Direct Payment", () => {
-    it("payDirect transfers USDC", async () => {
+    it("send transfers USDC", async () => {
       const beforeAgent = await getBalance(agentWallet.address, contracts.usdc);
       const beforeProvider = await getBalance(providerWallet.address, contracts.usdc);
 
-      const result = await agentWallet.payDirect(
+      const result = await agentWallet.send(
         providerWallet.address,
         5, // $5.00
         "acceptance-test",
       );
 
-      assert.ok(result.tx_hash, "should return tx_hash");
+      assert.ok(result.txHash, "should return txHash");
 
       // Wait for on-chain
       const afterAgent = await waitForChange(
@@ -174,23 +167,22 @@ describe("SDK Acceptance — TypeScript", () => {
       const tab = await agentWallet.openTab(
         providerWallet.address,
         20, // $20
-        2, // max $2/charge
+        2,  // max $2/charge
       );
-      assert.ok(tab.tab_id || tab.id, "should return tab_id");
-      const tabId = tab.tab_id ?? tab.id;
+      assert.ok(tab.id, "should return tab id");
 
       // Wait for on-chain confirmation
       await new Promise((r) => setTimeout(r, 5000));
 
       // Charge (provider side)
-      const charge = await providerWallet.chargeTab(tabId, 1); // $1
+      const charge = await providerWallet.chargeTab(tab.id, 1); // $1
       assert.ok(
         charge.status === "approved" || charge.status === "confirmed",
         `charge should be approved, got ${charge.status}`,
       );
 
       // Close (agent side)
-      const close = await agentWallet.closeTab(tabId);
+      const close = await agentWallet.closeTab(tab.id);
       assert.ok(close.status, "close should return status");
     });
   });
@@ -208,25 +200,19 @@ describe("SDK Acceptance — TypeScript", () => {
       assert.ok(reg.id, "register should return id");
 
       // List — should appear
-      const client = new PayClient({
-        apiUrl: API_URL,
-        privateKey: agentKey,
-        chainId: CHAIN_ID,
-        routerAddress: contracts.router,
-      });
-      const list = await client.listWebhooks();
+      const list = await agentWallet.listWebhooks();
       const found = list.find(
-        (w) => w.webhookId === reg.id || w.url === hookUrl,
+        (w: { id: string; url: string }) => w.id === reg.id || w.url === hookUrl,
       );
       assert.ok(found, "webhook should appear in list");
 
       // Delete
-      await client.deleteWebhook(reg.id);
+      await agentWallet.deleteWebhook(reg.id);
 
       // List — should be gone
-      const listAfter = await client.listWebhooks();
+      const listAfter = await agentWallet.listWebhooks();
       const notFound = listAfter.find(
-        (w) => w.webhookId === reg.id || w.url === hookUrl,
+        (w: { id: string; url: string }) => w.id === reg.id || w.url === hookUrl,
       );
       assert.equal(notFound, undefined, "deleted webhook should not appear");
     });
@@ -250,18 +236,16 @@ describe("SDK Acceptance — TypeScript", () => {
     });
   });
 
-  describe("x402 Request V2 (direct settlement)", () => {
-    it("handles 402 with PAYMENT-REQUIRED header and pays automatically", async () => {
-      // Inline mini x402 V2 server
+  describe("x402 Request (direct settlement)", () => {
+    it("handles 402 with payment-required header and pays automatically", async () => {
+      // Inline mini x402 server
       const { createServer } = await import("node:http");
       const server = createServer((req, res) => {
-        // V2: check PAYMENT-SIGNATURE header
         const sig = req.headers["payment-signature"];
         if (sig && typeof sig === "string" && sig.length > 0) {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ content: "paid" }));
         } else {
-          // V2: return PAYMENT-REQUIRED header (base64-encoded JSON)
           const requirements = {
             scheme: "exact",
             amount: 1_000_000,
@@ -289,14 +273,7 @@ describe("SDK Acceptance — TypeScript", () => {
       const port = (server.address() as { port: number }).port;
 
       try {
-        const client = new PayClient({
-          apiUrl: API_URL,
-          privateKey: agentKey,
-          chainId: CHAIN_ID,
-          routerAddress: contracts.router,
-        });
-
-        const resp = await client.request(`http://127.0.0.1:${port}/content`);
+        const resp = await agentWallet.request(`http://127.0.0.1:${port}/content`);
         assert.equal(resp.status, 200, "should get 200 after payment");
         const body = (await resp.json()) as { content: string };
         assert.equal(body.content, "paid");
@@ -307,9 +284,9 @@ describe("SDK Acceptance — TypeScript", () => {
   });
 
   describe("Error Paths", () => {
-    it("payDirect rejects bad address (client-side)", async () => {
+    it("send rejects bad address (client-side)", async () => {
       await assert.rejects(
-        () => agentWallet.payDirect("not-an-address", 5, ""),
+        () => agentWallet.send("not-an-address", 5, ""),
         (err: unknown) => {
           assert.ok(
             err instanceof PayValidationError || err instanceof Error,
@@ -320,30 +297,12 @@ describe("SDK Acceptance — TypeScript", () => {
       );
     });
 
-    it("payDirect rejects below $1 minimum (client-side)", async () => {
+    it("send rejects below $1 minimum (client-side)", async () => {
       await assert.rejects(
         () =>
-          agentWallet.payDirect(providerWallet.address, 0.5, ""),
+          agentWallet.send(providerWallet.address, 0.5, ""),
         (err: unknown) => {
           assert.ok(err instanceof Error, "should throw error");
-          return true;
-        },
-      );
-    });
-
-    it("auth rejection with no signer (401)", async () => {
-      // Create a client with no signing capability
-      const badClient = new PayClient({
-        apiUrl: API_URL,
-        chainId: CHAIN_ID,
-        routerAddress: contracts.router,
-      });
-
-      await assert.rejects(
-        () => badClient.getStatus(),
-        (err: unknown) => {
-          // Should fail with auth error or missing signer
-          assert.ok(err instanceof Error);
           return true;
         },
       );
