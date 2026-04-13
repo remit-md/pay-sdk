@@ -975,6 +975,16 @@ export class Wallet {
 
   // ── Public: x402 ─────────────────────────────────────────────────
 
+  /**
+   * Make an HTTP request. If the server returns 402, automatically
+   * settles via x402 (direct or tab) and retries.
+   *
+   * @example
+   * ```ts
+   * const resp = await wallet.request("https://api.example.com/data");
+   * const data = await resp.json();
+   * ```
+   */
   async request(
     url: string,
     options?: {
@@ -996,6 +1006,39 @@ export class Wallet {
     });
     if (resp.status !== 402) return resp;
     return this.handle402(resp, url, method, bodyStr, headers);
+  }
+
+  /**
+   * Settle a 402 Payment Required response that you already have.
+   * Used by `createPayFetch()` to avoid double-fetching. Most users
+   * should use `request()` or `createPayFetch()` instead.
+   *
+   * @param resp - A Response with status 402
+   * @param url - The original request URL
+   * @param init - The original request init (method, body, headers)
+   * @returns The retried response after payment, plus settlement metadata
+   */
+  async settle(
+    resp: Response,
+    url: string,
+    init?: {
+      method?: string;
+      body?: string;
+      headers?: Record<string, string>;
+    },
+  ): Promise<{ response: Response; amount: number; settlement: string }> {
+    // Clone so parse402 in both paths can read the body independently
+    const metaClone = resp.clone();
+    const reqs = await this.parse402(metaClone);
+    const method = init?.method ?? "GET";
+    const headers = init?.headers ?? {};
+    const body = init?.body;
+    const response = await this.handle402(resp, url, method, body, headers);
+    return {
+      response,
+      amount: reqs.amount,
+      settlement: reqs.settlement,
+    };
   }
 
   // ── Public: Wallet ───────────────────────────────────────────────
