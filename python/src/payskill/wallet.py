@@ -811,11 +811,15 @@ class Wallet:
                 },
             },
         )
+        # Server's DirectPaymentResponse only carries payment_id/tx_hash/status.
+        # Populate amount from the input (we know what we sent). Fee defaults to
+        # ~1% of amount (the spec'd base rate); server may override if it ever
+        # starts echoing the actual fee, including the volume-discount rate.
         return SendResult(
             tx_hash=raw.get("tx_hash", ""),
             status=raw.get("status", ""),
-            amount=_to_dollars(raw.get("amount", 0)),
-            fee=_to_dollars(raw.get("fee", 0)),
+            amount=_to_dollars(raw.get("amount", micro)),
+            fee=_to_dollars(raw.get("fee", micro // 100)),
         )
 
     # -- Public: Tabs ---------------------------------------------------------
@@ -845,6 +849,13 @@ class Wallet:
                 },
             },
         )
+        # Server's OpenTabResponse only carries tab_id, activation_fee, balance,
+        # tx_hash, status — not the full tab shape. Populate the rest from the
+        # inputs we already know so callers get a fully-populated Tab.
+        raw.setdefault("provider", provider)
+        raw.setdefault("amount", micro_amount)
+        raw.setdefault("max_charge_per_call", micro_max)
+        raw.setdefault("balance_remaining", raw.get("balance", micro_amount))
         return _parse_tab(raw)
 
     def close_tab(self, tab_id: str) -> Tab:
@@ -871,6 +882,10 @@ class Wallet:
                 },
             },
         )
+        # Server's TopUpTabResponse returns `new_balance`, not `balance_remaining`.
+        # Map it so the parsed Tab reflects the post-topup balance.
+        if "new_balance" in raw and "balance_remaining" not in raw:
+            raw["balance_remaining"] = raw["new_balance"]
         return _parse_tab(raw)
 
     def list_tabs(self) -> list[Tab]:
