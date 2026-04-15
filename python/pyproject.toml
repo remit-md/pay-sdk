@@ -66,4 +66,5 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "e2e: end-to-end tests against live testnet (requires PAYSKILL_TESTNET_KEY)",
+    "acceptance: acceptance tests with real wallet and settlement",
 ]
