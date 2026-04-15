@@ -1,6 +1,6 @@
 {
   "name": "@pay-skill/express",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Express.js middleware for x402 payments — consumer and provider",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,7 +12,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc",
