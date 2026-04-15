@@ -185,8 +185,11 @@ def _to_dollars(micro: int | float) -> float:
 
 
 def _parse_tab(raw: dict[str, Any]) -> Tab:
+    # Server returns `tab_id` from POST /tabs (OpenTabResponse) but `id` from
+    # GET /tabs (TabSummary). Accept either so the same parser handles both.
+    tab_id = raw.get("id") or raw.get("tab_id") or ""
     return Tab(
-        id=raw.get("tab_id", ""),
+        id=tab_id,
         provider=raw.get("provider", ""),
         amount=_to_dollars(raw.get("amount", 0)),
         balance_remaining=_to_dollars(raw.get("balance_remaining", 0)),
