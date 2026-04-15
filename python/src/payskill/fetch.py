@@ -26,7 +26,7 @@ import base64
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -34,7 +34,7 @@ from payskill.errors import PayBudgetExceededError, PayNetworkError
 
 # -- Types --------------------------------------------------------------------
 
-if False:  # TYPE_CHECKING without import cycle
+if TYPE_CHECKING:
     from payskill.wallet import Wallet
 
 
@@ -170,11 +170,13 @@ class PayFetch:
 
         self._total_spent += amount_dollars
         if self._on_payment is not None:
-            self._on_payment(PaymentEvent(
-                url=url,
-                amount=amount_dollars,
-                settlement=reqs["settlement"],
-            ))
+            self._on_payment(
+                PaymentEvent(
+                    url=url,
+                    amount=amount_dollars,
+                    settlement=reqs["settlement"],
+                )
+            )
 
         return result
 

@@ -98,9 +98,7 @@ def require_payment(
 
         # Decode payload
         try:
-            payment_payload: Any = json.loads(
-                base64.b64decode(payment_header).decode("utf-8")
-            )
+            payment_payload: Any = json.loads(base64.b64decode(payment_header).decode("utf-8"))
         except Exception as e:
             raise _payment_required(
                 request,
@@ -123,9 +121,7 @@ def require_payment(
             resolved_facilitator,
         )
 
-        verify_result = await _verify_payment(
-            resolved_facilitator, payment_payload, offer
-        )
+        verify_result = await _verify_payment(resolved_facilitator, payment_payload, offer)
 
         # Facilitator unreachable
         if verify_result is None:

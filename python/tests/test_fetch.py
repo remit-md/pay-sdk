@@ -392,6 +392,7 @@ class TestParse402Amount:
 
     def test_missing_header_zero(self) -> None:
         """No payment-required header means $0 (budget check passes)."""
+
         # 402 without header — budget check passes but settlement will fail
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(402)

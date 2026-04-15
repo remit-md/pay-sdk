@@ -38,6 +38,7 @@ def _make_facilitator_app() -> FastAPI:
             return {"isValid": False, "invalidReason": "insufficient funds"}
         if mode == "error":
             from fastapi.responses import JSONResponse
+
             return JSONResponse({"error": "internal"}, status_code=500)
         return {"isValid": False}
 
@@ -55,6 +56,7 @@ class _FacilitatorServer:
 
     def start(self) -> None:
         import socket
+
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         self.port = sock.getsockname()[1]
@@ -179,9 +181,7 @@ class TestRequirePaymentNoHeader:
 
 
 class TestRequirePaymentValid:
-    def test_passes_through_with_payment_info(
-        self, facilitator: _FacilitatorServer
-    ) -> None:
+    def test_passes_through_with_payment_info(self, facilitator: _FacilitatorServer) -> None:
         _facilitator_behavior["mode"] = "valid"
         app = FastAPI()
 
@@ -217,9 +217,7 @@ class TestRequirePaymentValid:
 
 
 class TestRequirePaymentInvalid:
-    def test_returns_402_on_invalid_payment(
-        self, facilitator: _FacilitatorServer
-    ) -> None:
+    def test_returns_402_on_invalid_payment(self, facilitator: _FacilitatorServer) -> None:
         _facilitator_behavior["mode"] = "invalid"
         app = FastAPI()
 
@@ -245,9 +243,7 @@ class TestRequirePaymentInvalid:
         body = resp.json()
         assert "insufficient funds" in body["detail"]["message"]
 
-    def test_returns_402_on_malformed_signature(
-        self, facilitator: _FacilitatorServer
-    ) -> None:
+    def test_returns_402_on_malformed_signature(self, facilitator: _FacilitatorServer) -> None:
         app = FastAPI()
 
         @app.get("/api/data")
@@ -330,9 +326,7 @@ class TestRequirePaymentFacilitatorDown:
         assert body["data"] == "passed through"
         assert body["verified"] is True
 
-    def test_402_when_facilitator_returns_500(
-        self, facilitator: _FacilitatorServer
-    ) -> None:
+    def test_402_when_facilitator_returns_500(self, facilitator: _FacilitatorServer) -> None:
         _facilitator_behavior["mode"] = "error"
         app = FastAPI()
 

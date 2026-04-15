@@ -37,3 +37,7 @@ from_ows  # noqa
 # Test fixtures
 TEST_ADDRESS  # noqa
 return_value  # noqa
+provider_wallet  # noqa  -- pytest fixture in test_fetch.py
+
+# httpx.BaseTransport interface method called by httpx internally
+handle_request  # noqa
