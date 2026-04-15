@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "test": "node --import tsx --test tests/*.ts",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
@@ -20,8 +21,10 @@
     "express": ">=4.0.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.0.0",
+    "express": "^5.2.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.0.0"
   },
   "engines": {
