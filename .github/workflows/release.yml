@@ -25,7 +25,7 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Python lint + test (main SDK)
@@ -41,10 +41,10 @@ jobs:
           ruff check .
           pytest -v
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
       - name: TypeScript lint + test (main SDK)
@@ -78,12 +78,12 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 9
 
@@ -93,7 +93,21 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Check if version already published
+        id: check
+        run: |
+          VERSION=$(jq -r .version package.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if npm view "@pay-skill/sdk@$VERSION" version > /dev/null 2>&1; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "@pay-skill/sdk@$VERSION already on npm — skipping publish"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "@pay-skill/sdk@$VERSION not yet published — will publish"
+          fi
+
       - name: Publish to npm
+        if: steps.check.outputs.skip != 'true'
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -109,7 +123,7 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
@@ -150,7 +164,7 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
@@ -191,17 +205,33 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install build tools
         run: pip install build
 
+      - name: Check if version already published
+        id: check
+        run: |
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/pay-skill/$VERSION/json")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "pay-skill $VERSION already on PyPI — skipping publish"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "pay-skill $VERSION not yet published — will publish"
+          fi
+
       - name: Build package
+        if: steps.check.outputs.skip != 'true'
         run: python -m build
 
       - name: Publish to PyPI
+        if: steps.check.outputs.skip != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python/dist/
@@ -217,7 +247,7 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -259,11 +289,11 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 9
 
