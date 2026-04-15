@@ -1,0 +1,36 @@
+{
+  "name": "@pay-skill/express",
+  "version": "0.1.0",
+  "description": "Express.js middleware for x402 payments — consumer and provider",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@pay-skill/sdk": ">=0.1.0",
+    "express": ">=4.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pay-skill/pay-sdk",
+    "directory": "typescript/express"
+  }
+}
