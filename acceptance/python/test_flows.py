@@ -241,6 +241,90 @@ class TestX402Request:
             server.shutdown()
 
 
+class TestX402TabSettlement:
+    """x402 V2 request() with tab-based auto-payment."""
+
+    def setup_method(self):
+        self.contracts = get_contracts()
+        self.agent_key, self.agent_addr = generate_wallet()
+        self.provider_key, self.provider_addr = generate_wallet()
+        mint(self.agent_addr, 200)  # 200 USDC
+        wait_for_balance_change(self.agent_addr, self.contracts["usdc"], 0)
+
+    def test_request_handles_402_tab(self):
+        """Wallet.request() sees 402 with tab settlement, auto-opens tab, charges, retries."""
+        import base64
+        import json
+        import threading
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+
+        provider_addr = self.provider_addr
+
+        class TabX402Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                sig = self.headers.get("PAYMENT-SIGNATURE", "")
+                if sig:
+                    # Verify it's tab settlement
+                    decoded = json.loads(base64.b64decode(sig))
+                    pay = decoded.get("extensions", {}).get("pay", {})
+                    if (
+                        pay.get("settlement") == "tab"
+                        and pay.get("tabId")
+                        and pay.get("chargeId")
+                    ):
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(b'{"content":"paid-via-tab"}')
+                    else:
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(b'{"error":"expected tab settlement"}')
+                else:
+                    requirements = {
+                        "scheme": "exact",
+                        "amount": 100_000,  # $0.10 per call
+                        "to": provider_addr,
+                        "settlement": "tab",
+                        "facilitator": "https://testnet.pay-skill.com/x402",
+                        "maxChargePerCall": 100_000,
+                        "network": "eip155:84532",
+                    }
+                    req_b64 = base64.b64encode(
+                        json.dumps(requirements).encode()
+                    ).decode()
+                    self.send_response(402)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("payment-required", req_b64)
+                    self.end_headers()
+                    body = json.dumps(
+                        {
+                            "error": "payment_required",
+                            "message": "This resource requires payment",
+                            "requirements": requirements,
+                        }
+                    )
+                    self.wfile.write(body.encode())
+
+            def log_message(self, format, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), TabX402Handler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            wallet = make_wallet(self.agent_key)
+            resp = wallet.request(f"http://127.0.0.1:{port}/content")
+            assert resp.status_code == 200, f"expected 200, got {resp.status_code}"
+            data = resp.json()
+            assert data["content"] == "paid-via-tab"
+        finally:
+            server.shutdown()
+
+
 class TestErrorPaths:
     """Client-side validation errors."""
 

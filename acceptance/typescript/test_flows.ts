@@ -283,6 +283,60 @@ describe("SDK Acceptance — TypeScript", () => {
     });
   });
 
+  describe("x402 Request (tab settlement)", () => {
+    it("handles 402 with tab settlement, auto-opens tab, and pays", async () => {
+      const { createServer } = await import("node:http");
+      const server = createServer((req, res) => {
+        const sig = req.headers["payment-signature"];
+        if (sig && typeof sig === "string" && sig.length > 0) {
+          // Verify it's tab settlement (decode base64 → check extensions.pay)
+          const decoded = JSON.parse(Buffer.from(sig, "base64").toString());
+          const pay = decoded?.extensions?.pay;
+          if (pay?.settlement === "tab" && pay?.tabId && pay?.chargeId) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ content: "paid-via-tab" }));
+          } else {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "expected tab settlement" }));
+          }
+        } else {
+          const requirements = {
+            scheme: "exact",
+            amount: 100_000,  // $0.10 per call
+            to: providerWallet.address,
+            settlement: "tab",
+            facilitator: "https://testnet.pay-skill.com/x402",
+            maxChargePerCall: 100_000,
+            network: "eip155:84532",
+          };
+          const reqB64 = Buffer.from(JSON.stringify(requirements)).toString("base64");
+          res.writeHead(402, {
+            "Content-Type": "application/json",
+            "payment-required": reqB64,
+          });
+          res.end(
+            JSON.stringify({
+              error: "payment_required",
+              message: "This resource requires payment",
+              requirements,
+            }),
+          );
+        }
+      });
+      await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const resp = await agentWallet.request(`http://127.0.0.1:${port}/content`);
+        assert.equal(resp.status, 200, "should get 200 after tab payment");
+        const body = (await resp.json()) as { content: string };
+        assert.equal(body.content, "paid-via-tab");
+      } finally {
+        server.close();
+      }
+    });
+  });
+
   describe("Error Paths", () => {
     it("send rejects bad address (client-side)", async () => {
       await assert.rejects(
