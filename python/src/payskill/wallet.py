@@ -940,7 +940,10 @@ class Wallet:
         """Get wallet balance in dollars."""
         raw = self._get("/status")
         balance_usdc = raw.get("balance_usdc")
-        total = float(balance_usdc) / 1_000_000 if balance_usdc else 0.0
+        # Server returns balance_usdc as a dollar-formatted decimal string
+        # (e.g. "50.00"), not micro-USDC. See server/src/routes/status.rs:69
+        # `format!("{whole}.{frac:02}")`. total_locked IS micro-USDC (u64).
+        total = float(balance_usdc) if balance_usdc else 0.0
         locked = (raw.get("total_locked", 0) or 0) / 1_000_000
         return Balance(total=total, locked=locked, available=total - locked)
 
@@ -948,7 +951,8 @@ class Wallet:
         """Get full wallet status."""
         raw = self._get("/status")
         balance_usdc = raw.get("balance_usdc")
-        total = float(balance_usdc) / 1_000_000 if balance_usdc else 0.0
+        # See balance() comment — balance_usdc is dollars, total_locked is micro.
+        total = float(balance_usdc) if balance_usdc else 0.0
         locked = (raw.get("total_locked", 0) or 0) / 1_000_000
         return Status(
             address=raw.get("wallet", ""),
