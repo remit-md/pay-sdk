@@ -38,6 +38,8 @@ from_ows  # noqa
 TEST_ADDRESS  # noqa
 return_value  # noqa
 provider_wallet  # noqa  -- pytest fixture in test_fetch.py
+keyring_mod  # noqa  -- pytest fixture in test_keychain.py
+_clean_env  # noqa  -- autouse pytest fixture in test_keychain.py
 
 # httpx.BaseTransport interface method called by httpx internally
 handle_request  # noqa
