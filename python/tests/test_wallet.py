@@ -307,6 +307,8 @@ class TestTabs:
 
 class TestBalance:
     def test_balance(self, wallet):
+        # balance_usdc is a dollar-formatted string (server format
+        # "{whole}.{frac:02}"), total_locked is micro-USDC as integer.
         transport = mock_transport(
             [
                 (200, CONTRACTS_RESPONSE),
@@ -314,7 +316,7 @@ class TestBalance:
                     200,
                     {
                         "wallet": wallet.address,
-                        "balance_usdc": "50000000",
+                        "balance_usdc": "50.00",
                         "total_locked": 10_000_000,
                         "open_tabs": 2,
                     },
@@ -336,7 +338,7 @@ class TestBalance:
                     200,
                     {
                         "wallet": wallet.address,
-                        "balance_usdc": "50000000",
+                        "balance_usdc": "50.00",
                         "total_locked": 10_000_000,
                         "open_tabs": 2,
                     },

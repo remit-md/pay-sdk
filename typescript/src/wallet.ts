@@ -1055,9 +1055,10 @@ export class Wallet {
       balance_usdc: string | null;
       total_locked: number;
     }>("/status");
-    const total = raw.balance_usdc
-      ? Number(raw.balance_usdc) / 1_000_000
-      : 0;
+    // Server returns balance_usdc as a dollar-formatted decimal string
+    // (e.g. "50.00"), not micro-USDC. See server/src/routes/status.rs:69
+    // `format!("{whole}.{frac:02}")`. total_locked IS micro-USDC (u64).
+    const total = raw.balance_usdc ? Number(raw.balance_usdc) : 0;
     const locked = (raw.total_locked ?? 0) / 1_000_000;
     return { total, locked, available: total - locked };
   }
@@ -1069,9 +1070,8 @@ export class Wallet {
       total_locked: number;
       open_tabs: number;
     }>("/status");
-    const total = raw.balance_usdc
-      ? Number(raw.balance_usdc) / 1_000_000
-      : 0;
+    // See balance() comment — balance_usdc is dollars, total_locked is micro.
+    const total = raw.balance_usdc ? Number(raw.balance_usdc) : 0;
     const locked = (raw.total_locked ?? 0) / 1_000_000;
     return {
       address: raw.wallet,
