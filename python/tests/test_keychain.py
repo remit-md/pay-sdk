@@ -1,7 +1,8 @@
 """Keychain integration tests -- prove Wallet.create() reads from real OS keychain.
 
 Requires: gnome-keyring + dbus session on Linux.
-Run via: dbus-run-session -- bash -c 'echo "" | gnome-keyring-daemon --unlock && pytest tests/test_keychain.py -v'
+Run via: dbus-run-session -- bash -c \
+  'echo "" | gnome-keyring-daemon --unlock && pytest tests/test_keychain.py -v'
 
 Skips gracefully when keyring is not installed or Secret Service is unavailable.
 """
