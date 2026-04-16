@@ -73,3 +73,44 @@ jobs:
           PAYSKILL_TESTNET_KEY: ${{ secrets.PAYSKILL_TESTNET_KEY }}
           PAYSKILL_TESTNET_URL: https://testnet.pay-skill.com/api/v1
         run: cd typescript && node --import tsx --test tests/test_e2e.ts
+
+  keychain:
+    name: Keychain Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install keychain system deps
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev gnome-keyring dbus-x11
+
+      # ── TypeScript ──
+      - uses: pnpm/action-setup@v5
+        with:
+          version: "latest"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: "pnpm"
+          cache-dependency-path: typescript/pnpm-lock.yaml
+      - name: Install TS dependencies
+        run: cd typescript && pnpm install --frozen-lockfile
+      - name: TS keychain test
+        run: |
+          dbus-run-session -- bash -c '
+            echo "" | gnome-keyring-daemon --unlock
+            cd typescript && node --import tsx --test tests/test_keychain.ts
+          '
+
+      # ── Python ──
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install Python dependencies
+        run: cd python && pip install -e ".[dev,keychain]"
+      - name: Python keychain test
+        run: |
+          dbus-run-session -- bash -c '
+            echo "" | gnome-keyring-daemon --unlock
+            cd python && pytest tests/test_keychain.py -v
+          '
