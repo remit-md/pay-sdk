@@ -123,6 +123,18 @@ class MintResult:
 
 
 @dataclass
+class SettleResult:
+    """Result of settling a 402 Payment Required response."""
+
+    response: httpx.Response
+    """The response from the retried request after payment."""
+    amount: int
+    """Payment amount in micro-USDC."""
+    settlement: str
+    """Settlement type: "direct" or "tab"."""
+
+
+@dataclass
 class _Contracts:
     router: str
     tab: str
@@ -933,6 +945,40 @@ class Wallet:
         if resp.status_code != 402:
             return resp
         return self._handle_402(resp, url, req_method, body_str, req_headers)
+
+    def settle(
+        self,
+        resp: httpx.Response,
+        url: str,
+        *,
+        method: str | None = None,
+        body: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> SettleResult:
+        """Settle a 402 Payment Required response that you already have.
+
+        Used by ``create_pay_fetch()`` to avoid double-fetching. Most users
+        should use :meth:`request` instead.
+
+        Args:
+            resp: A response with status 402.
+            url: The original request URL.
+            method: The original HTTP method (default ``"GET"``).
+            body: The original request body as a string, if any.
+            headers: The original request headers.
+
+        Returns:
+            :class:`SettleResult` with the retried response and settlement metadata.
+        """
+        reqs = self._parse_402(resp)
+        req_method = method or "GET"
+        req_headers = headers or {}
+        response = self._handle_402(resp, url, req_method, body, req_headers)
+        return SettleResult(
+            response=response,
+            amount=reqs["amount"],
+            settlement=reqs["settlement"],
+        )
 
     # -- Public: Wallet -------------------------------------------------------
 

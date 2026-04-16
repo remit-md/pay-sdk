@@ -20,6 +20,7 @@ from payskill.wallet import (
     DiscoverService,
     MintResult,
     SendResult,
+    SettleResult,
     Status,
     Tab,
     Wallet,
@@ -48,4 +49,5 @@ __all__ = [
     "DiscoverService",
     "WebhookRegistration",
     "MintResult",
+    "SettleResult",
 ]
