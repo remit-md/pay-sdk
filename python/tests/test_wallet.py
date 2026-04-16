@@ -717,9 +717,7 @@ class TestSettle:
             captured_requests.append(request)
             return httpx.Response(200, json={"ok": True})
 
-        wallet._client = httpx.Client(
-            transport=httpx.MockTransport(capturing_handler)
-        )
+        wallet._client = httpx.Client(transport=httpx.MockTransport(capturing_handler))
 
         provider = "0x" + "aa" * 20
         resp402 = httpx.Response(
