@@ -23,14 +23,19 @@ def generate_wallet() -> tuple[str, str]:
 
 # /mint is rate-limited (1/hour per wallet) and the faucet itself can flake
 # (5xx when out of gas, transient network errors). Each test generates a
-# fresh wallet so the per-wallet limit doesn't apply, but global server
-# hiccups still take down whole runs without retry — see release v0.2.4
-# attempt 1, where one /mint 500 sank the suite.
+# fresh wallet so the per-wallet limit normally doesn't apply, but global
+# server hiccups still take down whole runs without retry — see release
+# v0.2.4 attempt 1, where one /mint 500 sank the suite.
+#
+# 429 is treated as success: the server only returns it when the wallet was
+# minted within the last hour, which means the funds are already there. The
+# rate-limit window is 60 minutes — retrying for 110s and giving up is
+# strictly worse than letting wait_for_balance_change confirm balance.
 _MINT_RETRY_DELAYS = (5, 15, 30, 60)
 
 
 def mint(address: str, amount: int) -> str:
-    """Mint testnet USDC. Returns tx_hash. Retries on 429/5xx/network errors."""
+    """Mint testnet USDC. Returns tx_hash ('' if 429-skipped). Retries on 5xx/network errors."""
     last_err: Exception | None = None
     for attempt, delay in enumerate((0,) + _MINT_RETRY_DELAYS):
         if delay:
@@ -41,7 +46,10 @@ def mint(address: str, amount: int) -> str:
                 json={"wallet": address, "amount": amount},
                 timeout=60,
             )
-            if resp.status_code < 500 and resp.status_code != 429:
+            if resp.status_code == 429:
+                print(f"  [mint] 429 rate-limited — wallet has funds from prior mint, skipping")
+                return ""
+            if resp.status_code < 500:
                 resp.raise_for_status()
                 return resp.json()["tx_hash"]
             last_err = httpx.HTTPStatusError(
