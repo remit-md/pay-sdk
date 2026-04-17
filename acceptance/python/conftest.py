@@ -6,6 +6,7 @@ against live Base Sepolia. No mocks.
 """
 
 import os
+import time
 import json
 import httpx
 from eth_account import Account
@@ -20,15 +21,38 @@ def generate_wallet() -> tuple[str, str]:
     return acct.key.hex(), acct.address
 
 
+# /mint is rate-limited (1/hour per wallet) and the faucet itself can flake
+# (5xx when out of gas, transient network errors). Each test generates a
+# fresh wallet so the per-wallet limit doesn't apply, but global server
+# hiccups still take down whole runs without retry — see release v0.2.4
+# attempt 1, where one /mint 500 sank the suite.
+_MINT_RETRY_DELAYS = (5, 15, 30, 60)
+
+
 def mint(address: str, amount: int) -> str:
-    """Mint testnet USDC. Returns tx_hash."""
-    resp = httpx.post(
-        f"{API_URL}/mint",
-        json={"wallet": address, "amount": amount},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["tx_hash"]
+    """Mint testnet USDC. Returns tx_hash. Retries on 429/5xx/network errors."""
+    last_err: Exception | None = None
+    for attempt, delay in enumerate((0,) + _MINT_RETRY_DELAYS):
+        if delay:
+            time.sleep(delay)
+        try:
+            resp = httpx.post(
+                f"{API_URL}/mint",
+                json={"wallet": address, "amount": amount},
+                timeout=60,
+            )
+            if resp.status_code < 500 and resp.status_code != 429:
+                resp.raise_for_status()
+                return resp.json()["tx_hash"]
+            last_err = httpx.HTTPStatusError(
+                f"mint {resp.status_code}: {resp.text[:200]}",
+                request=resp.request,
+                response=resp,
+            )
+        except (httpx.RequestError, httpx.HTTPStatusError) as err:
+            last_err = err
+        print(f"  [mint retry {attempt + 1}/{len(_MINT_RETRY_DELAYS) + 1}] {last_err}")
+    raise RuntimeError(f"mint failed after {len(_MINT_RETRY_DELAYS) + 1} attempts: {last_err}")
 
 
 def get_contracts() -> dict:
