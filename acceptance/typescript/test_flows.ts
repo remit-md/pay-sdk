@@ -31,13 +31,18 @@ const RPC_URL =
 /**
  * /mint is rate-limited (1/hour per wallet) and the faucet itself can flake
  * (5xx when out of gas, transient network errors). Each test generates a
- * fresh wallet so the per-wallet limit doesn't apply, but global server
- * hiccups still take down whole runs without retry — see release v0.2.4
- * attempt 1, where one /mint 500 sank the suite.
+ * fresh wallet so the per-wallet limit normally doesn't apply, but global
+ * server hiccups still take down whole runs without retry — see release
+ * v0.2.4 attempt 1, where one /mint 500 sank the suite.
+ *
+ * 429 is treated as success: the server only returns it when the wallet was
+ * minted within the last hour, which means the funds are already there. The
+ * rate-limit window is 60 minutes — retrying for 110s and giving up is
+ * strictly worse than letting waitForBalance confirm balance.
  */
 const MINT_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000];
 
-/** Mint testnet USDC (no auth needed). Retries on 429/5xx/network errors. */
+/** Mint testnet USDC (no auth needed). Retries on 5xx/network errors; 429 = no-op success. */
 async function mint(wallet: string, amount: number): Promise<void> {
   let lastErr: unknown;
   const schedule = [0, ...MINT_RETRY_DELAYS_MS];
@@ -51,7 +56,11 @@ async function mint(wallet: string, amount: number): Promise<void> {
         body: JSON.stringify({ wallet, amount }),
       });
       if (res.ok) return;
-      if (res.status < 500 && res.status !== 429) {
+      if (res.status === 429) {
+        console.log(`  [mint] 429 rate-limited — wallet has funds from prior mint, skipping`);
+        return;
+      }
+      if (res.status < 500) {
         throw new Error(`Mint failed: ${res.status}`);
       }
       lastErr = new Error(`Mint ${res.status}: ${(await res.text()).slice(0, 200)}`);
