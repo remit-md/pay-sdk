@@ -1,11 +1,18 @@
 """pay SDK -- payment infrastructure for AI agents."""
 
 from payskill.errors import (
+    PayBudgetExceededError,
     PayError,
     PayInsufficientFundsError,
     PayNetworkError,
     PayServerError,
     PayValidationError,
+)
+from payskill.fetch import (
+    PayFetch,
+    PayFetchOptions,
+    PaymentEvent,
+    create_pay_fetch,
 )
 from payskill.wallet import (
     Balance,
@@ -13,6 +20,7 @@ from payskill.wallet import (
     DiscoverService,
     MintResult,
     SendResult,
+    SettleResult,
     Status,
     Tab,
     Wallet,
@@ -23,11 +31,16 @@ from payskill.wallet import (
 __all__ = [
     "Wallet",
     "discover",
+    "create_pay_fetch",
+    "PayFetch",
+    "PayFetchOptions",
+    "PaymentEvent",
     "PayError",
     "PayValidationError",
     "PayNetworkError",
     "PayServerError",
     "PayInsufficientFundsError",
+    "PayBudgetExceededError",
     "SendResult",
     "Tab",
     "ChargeResult",
@@ -36,4 +49,5 @@ __all__ = [
     "DiscoverService",
     "WebhookRegistration",
     "MintResult",
+    "SettleResult",
 ]

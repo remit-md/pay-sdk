@@ -60,11 +60,13 @@ function createAuthServer(): Server {
     }
 
     // Auth passed
+    // balance_usdc is a dollar-formatted string (server format
+    // "{whole}.{frac:02}"), not micro-USDC.
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
         wallet: agent,
-        balance_usdc: "100000000",
+        balance_usdc: "100.00",
         open_tabs: 0,
         total_locked: 0,
       }),

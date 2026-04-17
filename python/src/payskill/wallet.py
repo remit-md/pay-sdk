@@ -123,6 +123,18 @@ class MintResult:
 
 
 @dataclass
+class SettleResult:
+    """Result of settling a 402 Payment Required response."""
+
+    response: httpx.Response
+    """The response from the retried request after payment."""
+    amount: int
+    """Payment amount in micro-USDC."""
+    settlement: str
+    """Settlement type: "direct" or "tab"."""
+
+
+@dataclass
 class _Contracts:
     router: str
     tab: str
@@ -185,8 +197,11 @@ def _to_dollars(micro: int | float) -> float:
 
 
 def _parse_tab(raw: dict[str, Any]) -> Tab:
+    # Server returns `tab_id` from POST /tabs (OpenTabResponse) but `id` from
+    # GET /tabs (TabSummary). Accept either so the same parser handles both.
+    tab_id = raw.get("id") or raw.get("tab_id") or ""
     return Tab(
-        id=raw.get("tab_id", ""),
+        id=tab_id,
         provider=raw.get("provider", ""),
         amount=_to_dollars(raw.get("amount", 0)),
         balance_remaining=_to_dollars(raw.get("balance_remaining", 0)),
@@ -808,11 +823,15 @@ class Wallet:
                 },
             },
         )
+        # Server's DirectPaymentResponse only carries payment_id/tx_hash/status.
+        # Populate amount from the input (we know what we sent). Fee defaults to
+        # ~1% of amount (the spec'd base rate); server may override if it ever
+        # starts echoing the actual fee, including the volume-discount rate.
         return SendResult(
             tx_hash=raw.get("tx_hash", ""),
             status=raw.get("status", ""),
-            amount=_to_dollars(raw.get("amount", 0)),
-            fee=_to_dollars(raw.get("fee", 0)),
+            amount=_to_dollars(raw.get("amount", micro)),
+            fee=_to_dollars(raw.get("fee", micro // 100)),
         )
 
     # -- Public: Tabs ---------------------------------------------------------
@@ -842,6 +861,13 @@ class Wallet:
                 },
             },
         )
+        # Server's OpenTabResponse only carries tab_id, activation_fee, balance,
+        # tx_hash, status — not the full tab shape. Populate the rest from the
+        # inputs we already know so callers get a fully-populated Tab.
+        raw.setdefault("provider", provider)
+        raw.setdefault("amount", micro_amount)
+        raw.setdefault("max_charge_per_call", micro_max)
+        raw.setdefault("balance_remaining", raw.get("balance", micro_amount))
         return _parse_tab(raw)
 
     def close_tab(self, tab_id: str) -> Tab:
@@ -868,6 +894,10 @@ class Wallet:
                 },
             },
         )
+        # Server's TopUpTabResponse returns `new_balance`, not `balance_remaining`.
+        # Map it so the parsed Tab reflects the post-topup balance.
+        if "new_balance" in raw and "balance_remaining" not in raw:
+            raw["balance_remaining"] = raw["new_balance"]
         return _parse_tab(raw)
 
     def list_tabs(self) -> list[Tab]:
@@ -916,13 +946,50 @@ class Wallet:
             return resp
         return self._handle_402(resp, url, req_method, body_str, req_headers)
 
+    def settle(
+        self,
+        resp: httpx.Response,
+        url: str,
+        *,
+        method: str | None = None,
+        body: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> SettleResult:
+        """Settle a 402 Payment Required response that you already have.
+
+        Used by ``create_pay_fetch()`` to avoid double-fetching. Most users
+        should use :meth:`request` instead.
+
+        Args:
+            resp: A response with status 402.
+            url: The original request URL.
+            method: The original HTTP method (default ``"GET"``).
+            body: The original request body as a string, if any.
+            headers: The original request headers.
+
+        Returns:
+            :class:`SettleResult` with the retried response and settlement metadata.
+        """
+        reqs = self._parse_402(resp)
+        req_method = method or "GET"
+        req_headers = headers or {}
+        response = self._handle_402(resp, url, req_method, body, req_headers)
+        return SettleResult(
+            response=response,
+            amount=reqs["amount"],
+            settlement=reqs["settlement"],
+        )
+
     # -- Public: Wallet -------------------------------------------------------
 
     def balance(self) -> Balance:
         """Get wallet balance in dollars."""
         raw = self._get("/status")
         balance_usdc = raw.get("balance_usdc")
-        total = float(balance_usdc) / 1_000_000 if balance_usdc else 0.0
+        # Server returns balance_usdc as a dollar-formatted decimal string
+        # (e.g. "50.00"), not micro-USDC. See server/src/routes/status.rs:69
+        # `format!("{whole}.{frac:02}")`. total_locked IS micro-USDC (u64).
+        total = float(balance_usdc) if balance_usdc else 0.0
         locked = (raw.get("total_locked", 0) or 0) / 1_000_000
         return Balance(total=total, locked=locked, available=total - locked)
 
@@ -930,7 +997,8 @@ class Wallet:
         """Get full wallet status."""
         raw = self._get("/status")
         balance_usdc = raw.get("balance_usdc")
-        total = float(balance_usdc) / 1_000_000 if balance_usdc else 0.0
+        # See balance() comment — balance_usdc is dollars, total_locked is micro.
+        total = float(balance_usdc) if balance_usdc else 0.0
         locked = (raw.get("total_locked", 0) or 0) / 1_000_000
         return Status(
             address=raw.get("wallet", ""),

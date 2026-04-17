@@ -1,0 +1,44 @@
+{
+  "name": "@pay-skill/next",
+  "version": "0.1.1",
+  "description": "Next.js App Router integration for x402 payments — consumer and provider",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --import tsx --test tests/*.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@pay-skill/sdk": ">=0.1.0",
+    "next": ">=13.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.0.0",
+    "express": "^5.2.1",
+    "next": "^15.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pay-skill/pay-sdk",
+    "directory": "typescript/next"
+  }
+}

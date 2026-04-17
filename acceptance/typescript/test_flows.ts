@@ -28,14 +28,48 @@ const RPC_URL =
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-/** Mint testnet USDC (no auth needed). */
+/**
+ * /mint is rate-limited (1/hour per wallet) and the faucet itself can flake
+ * (5xx when out of gas, transient network errors). Each test generates a
+ * fresh wallet so the per-wallet limit normally doesn't apply, but global
+ * server hiccups still take down whole runs without retry — see release
+ * v0.2.4 attempt 1, where one /mint 500 sank the suite.
+ *
+ * 429 is treated as success: the server only returns it when the wallet was
+ * minted within the last hour, which means the funds are already there. The
+ * rate-limit window is 60 minutes — retrying for 110s and giving up is
+ * strictly worse than letting waitForBalance confirm balance.
+ */
+const MINT_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000];
+
+/** Mint testnet USDC (no auth needed). Retries on 5xx/network errors; 429 = no-op success. */
 async function mint(wallet: string, amount: number): Promise<void> {
-  const res = await fetch(`${API_URL}/mint`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ wallet, amount }),
-  });
-  if (!res.ok) throw new Error(`Mint failed: ${res.status}`);
+  let lastErr: unknown;
+  const schedule = [0, ...MINT_RETRY_DELAYS_MS];
+  for (let attempt = 0; attempt < schedule.length; attempt++) {
+    const delay = schedule[attempt]!;
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    try {
+      const res = await fetch(`${API_URL}/mint`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wallet, amount }),
+      });
+      if (res.ok) return;
+      if (res.status === 429) {
+        console.log(`  [mint] 429 rate-limited — wallet has funds from prior mint, skipping`);
+        return;
+      }
+      if (res.status < 500) {
+        throw new Error(`Mint failed: ${res.status}`);
+      }
+      lastErr = new Error(`Mint ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    } catch (err) {
+      lastErr = err;
+    }
+    console.log(`  [mint retry ${attempt + 1}/${schedule.length}] ${lastErr}`);
+  }
+  throw new Error(`mint failed after ${schedule.length} attempts: ${lastErr}`);
 }
 
 /** Fetch contract addresses from server. */
@@ -277,6 +311,60 @@ describe("SDK Acceptance — TypeScript", () => {
         assert.equal(resp.status, 200, "should get 200 after payment");
         const body = (await resp.json()) as { content: string };
         assert.equal(body.content, "paid");
+      } finally {
+        server.close();
+      }
+    });
+  });
+
+  describe("x402 Request (tab settlement)", () => {
+    it("handles 402 with tab settlement, auto-opens tab, and pays", async () => {
+      const { createServer } = await import("node:http");
+      const server = createServer((req, res) => {
+        const sig = req.headers["payment-signature"];
+        if (sig && typeof sig === "string" && sig.length > 0) {
+          // Verify it's tab settlement (decode base64 → check extensions.pay)
+          const decoded = JSON.parse(Buffer.from(sig, "base64").toString());
+          const pay = decoded?.extensions?.pay;
+          if (pay?.settlement === "tab" && pay?.tabId && pay?.chargeId) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ content: "paid-via-tab" }));
+          } else {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "expected tab settlement" }));
+          }
+        } else {
+          const requirements = {
+            scheme: "exact",
+            amount: 100_000,  // $0.10 per call
+            to: providerWallet.address,
+            settlement: "tab",
+            facilitator: "https://testnet.pay-skill.com/x402",
+            maxChargePerCall: 100_000,
+            network: "eip155:84532",
+          };
+          const reqB64 = Buffer.from(JSON.stringify(requirements)).toString("base64");
+          res.writeHead(402, {
+            "Content-Type": "application/json",
+            "payment-required": reqB64,
+          });
+          res.end(
+            JSON.stringify({
+              error: "payment_required",
+              message: "This resource requires payment",
+              requirements,
+            }),
+          );
+        }
+      });
+      await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const resp = await agentWallet.request(`http://127.0.0.1:${port}/content`);
+        assert.equal(resp.status, 200, "should get 200 after tab payment");
+        const body = (await resp.json()) as { content: string };
+        assert.equal(body.content, "paid-via-tab");
       } finally {
         server.close();
       }

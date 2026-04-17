@@ -47,3 +47,19 @@ class PayInsufficientFundsError(PayError):
         super().__init__(message + hint, code="insufficient_funds")
         self.balance = balance
         self.required = required
+
+
+class PayBudgetExceededError(PayError):
+    """Payment would exceed a spending budget limit."""
+
+    def __init__(
+        self,
+        message: str,
+        spent: float = 0,
+        requested: float = 0,
+        limit_type: str = "total",
+    ) -> None:
+        super().__init__(message, code="budget_exceeded")
+        self.spent = spent
+        self.requested = requested
+        self.limit_type = limit_type

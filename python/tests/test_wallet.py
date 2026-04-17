@@ -307,6 +307,8 @@ class TestTabs:
 
 class TestBalance:
     def test_balance(self, wallet):
+        # balance_usdc is a dollar-formatted string (server format
+        # "{whole}.{frac:02}"), total_locked is micro-USDC as integer.
         transport = mock_transport(
             [
                 (200, CONTRACTS_RESPONSE),
@@ -314,7 +316,7 @@ class TestBalance:
                     200,
                     {
                         "wallet": wallet.address,
-                        "balance_usdc": "50000000",
+                        "balance_usdc": "50.00",
                         "total_locked": 10_000_000,
                         "open_tabs": 2,
                     },
@@ -336,7 +338,7 @@ class TestBalance:
                     200,
                     {
                         "wallet": wallet.address,
-                        "balance_usdc": "50000000",
+                        "balance_usdc": "50.00",
                         "total_locked": 10_000_000,
                         "open_tabs": 2,
                     },
@@ -588,3 +590,158 @@ class TestX402:
         )
         assert result["settlement"] == "tab"
         assert result["amount"] == 50000
+
+
+class TestSettle:
+    """Tests for the public settle() method."""
+
+    def test_settle_direct_returns_metadata(self, wallet):
+        """settle() with direct settlement extracts amount and type."""
+        from payskill.wallet import _Contracts
+
+        wallet._contracts = _Contracts(
+            router=CONTRACTS_RESPONSE["router"],
+            tab=CONTRACTS_RESPONSE["tab"],
+            direct=CONTRACTS_RESPONSE["direct"],
+            fee=CONTRACTS_RESPONSE["fee"],
+            usdc=CONTRACTS_RESPONSE["usdc"],
+            chain_id=CONTRACTS_RESPONSE["chain_id"],
+            relayer=CONTRACTS_RESPONSE["relayer"],
+        )
+
+        provider = "0x" + "aa" * 20
+        # Mock transport handles: retry request after payment
+        transport = mock_transport(
+            [
+                (200, {"data": "paid content"}),
+            ]
+        )
+        wallet._client = httpx.Client(transport=transport)
+
+        resp402 = httpx.Response(
+            402,
+            json={
+                "accepts": [
+                    {
+                        "amount": 100000,
+                        "payTo": provider,
+                        "extra": {"settlement": "direct"},
+                    }
+                ],
+            },
+        )
+
+        result = wallet.settle(resp402, "https://api.example.com/data")
+        assert result.response.status_code == 200
+        assert result.amount == 100000
+        assert result.settlement == "direct"
+
+    def test_settle_tab_returns_metadata(self, wallet):
+        """settle() with tab settlement extracts amount and type."""
+        from payskill.wallet import _Contracts
+
+        wallet._contracts = _Contracts(
+            router=CONTRACTS_RESPONSE["router"],
+            tab=CONTRACTS_RESPONSE["tab"],
+            direct=CONTRACTS_RESPONSE["direct"],
+            fee=CONTRACTS_RESPONSE["fee"],
+            usdc=CONTRACTS_RESPONSE["usdc"],
+            chain_id=CONTRACTS_RESPONSE["chain_id"],
+            relayer=CONTRACTS_RESPONSE["relayer"],
+        )
+
+        provider = "0x" + "aa" * 20
+        # Mock transport: GET /tabs, GET /status (balance), prepare-permit,
+        #   POST /tabs, POST /charge, retry
+        transport = mock_transport(
+            [
+                (200, []),  # GET /tabs (empty — no existing tab)
+                (
+                    200,
+                    {"balance_usdc": "100.00", "total_locked": 0},
+                ),  # GET /status (balance check)
+                (200, PERMIT_PREPARE_RESPONSE),  # GET /prepare-permit
+                (
+                    200,
+                    {
+                        "id": "tab-001",
+                        "provider": provider,
+                        "amount": 5000000,
+                        "status": "open",
+                    },
+                ),  # POST /tabs
+                (
+                    200,
+                    {"charge_id": "ch-001", "status": "buffered"},
+                ),  # POST /charge
+                (200, {"data": "paid content"}),  # retry
+            ]
+        )
+        wallet._client = httpx.Client(transport=transport)
+
+        resp402 = httpx.Response(
+            402,
+            json={
+                "accepts": [
+                    {
+                        "amount": 100000,
+                        "payTo": provider,
+                        "extra": {"settlement": "tab"},
+                    }
+                ],
+            },
+        )
+
+        result = wallet.settle(resp402, "https://api.example.com/data")
+        assert result.response.status_code == 200
+        assert result.amount == 100000
+        assert result.settlement == "tab"
+
+    def test_settle_forwards_method_and_body(self, wallet):
+        """settle() passes method and body through to the retry request."""
+        from payskill.wallet import _Contracts
+
+        wallet._contracts = _Contracts(
+            router=CONTRACTS_RESPONSE["router"],
+            tab=CONTRACTS_RESPONSE["tab"],
+            direct=CONTRACTS_RESPONSE["direct"],
+            fee=CONTRACTS_RESPONSE["fee"],
+            usdc=CONTRACTS_RESPONSE["usdc"],
+            chain_id=CONTRACTS_RESPONSE["chain_id"],
+            relayer=CONTRACTS_RESPONSE["relayer"],
+        )
+
+        captured_requests: list[httpx.Request] = []
+
+        def capturing_handler(request: httpx.Request) -> httpx.Response:
+            captured_requests.append(request)
+            return httpx.Response(200, json={"ok": True})
+
+        wallet._client = httpx.Client(transport=httpx.MockTransport(capturing_handler))
+
+        provider = "0x" + "aa" * 20
+        resp402 = httpx.Response(
+            402,
+            json={
+                "accepts": [
+                    {
+                        "amount": 100000,
+                        "payTo": provider,
+                        "extra": {"settlement": "direct"},
+                    }
+                ],
+            },
+        )
+
+        wallet.settle(
+            resp402,
+            "https://api.example.com/data",
+            method="POST",
+            body='{"key":"val"}',
+        )
+
+        # Last request is the retry — verify method and body
+        retry = captured_requests[-1]
+        assert retry.method == "POST"
+        assert b'"key"' in retry.content
+        assert "PAYMENT-SIGNATURE" in retry.headers

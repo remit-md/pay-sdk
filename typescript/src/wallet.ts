@@ -164,9 +164,12 @@ type SignTypedDataFn = (params: {
   message: Record<string, unknown>;
 }) => Promise<string>;
 
-// Raw server response (snake_case)
+// Raw server response (snake_case).
+// Server returns `id` from GET /tabs (TabSummary) but `tab_id` from
+// POST /tabs (OpenTabResponse). Accept both so the same parser handles both.
 interface RawTab {
-  tab_id: string;
+  id?: string;
+  tab_id?: string;
   provider: string;
   amount: number;
   balance_remaining: number;
@@ -251,7 +254,7 @@ function toDollars(micro: number): number {
 
 function parseTab(raw: RawTab): Tab {
   return {
-    id: raw.tab_id,
+    id: raw.tab_id ?? raw.id ?? "",
     provider: raw.provider,
     amount: toDollars(raw.amount),
     balanceRemaining: toDollars(raw.balance_remaining),
@@ -837,8 +840,9 @@ export class Wallet {
       });
     }
 
+    const tabId = tab.tab_id ?? tab.id ?? "";
     const charge = await this.post<{ charge_id?: string }>(
-      `/tabs/${tab.tab_id}/charge`,
+      `/tabs/${tabId}/charge`,
       { amount: reqs.amount },
     );
 
@@ -856,7 +860,7 @@ export class Wallet {
       extensions: {
         pay: {
           settlement: "tab",
-          tabId: tab.tab_id,
+          tabId,
           chargeId: charge.charge_id ?? "",
         },
       },
@@ -1055,9 +1059,10 @@ export class Wallet {
       balance_usdc: string | null;
       total_locked: number;
     }>("/status");
-    const total = raw.balance_usdc
-      ? Number(raw.balance_usdc) / 1_000_000
-      : 0;
+    // Server returns balance_usdc as a dollar-formatted decimal string
+    // (e.g. "50.00"), not micro-USDC. See server/src/routes/status.rs:69
+    // `format!("{whole}.{frac:02}")`. total_locked IS micro-USDC (u64).
+    const total = raw.balance_usdc ? Number(raw.balance_usdc) : 0;
     const locked = (raw.total_locked ?? 0) / 1_000_000;
     return { total, locked, available: total - locked };
   }
@@ -1069,9 +1074,8 @@ export class Wallet {
       total_locked: number;
       open_tabs: number;
     }>("/status");
-    const total = raw.balance_usdc
-      ? Number(raw.balance_usdc) / 1_000_000
-      : 0;
+    // See balance() comment — balance_usdc is dollars, total_locked is micro.
+    const total = raw.balance_usdc ? Number(raw.balance_usdc) : 0;
     const locked = (raw.total_locked ?? 0) / 1_000_000;
     return {
       address: raw.wallet,
