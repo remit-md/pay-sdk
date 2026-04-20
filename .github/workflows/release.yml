@@ -85,7 +85,7 @@ jobs:
           ruff check .
           pytest -v
 
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
       - uses: actions/setup-node@v6
@@ -127,7 +127,7 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -337,7 +337,7 @@ jobs:
         with:
           node-version: 20
 
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
